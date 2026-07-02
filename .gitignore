@@ -1,39 +1,22 @@
-# ==========================================
-# SurvAlign-P Git Ignore Configuration
-# ==========================================
-
-# 1. 대용량 가중치 파일 제외 (GitHub 100MB 한계 방지)
-*.pth
-*.pt
-AlignMark/weight.pth
-AlignMark/speechtokenizer/pretrained_model/SpeechTokenizer.pt
-
-# 2. 오디오 데이터셋 폴더 제외
-data/
-dev-clean.tar.gz
-
-# 3. 로컬 테스트 및 임시 결과물 제외
-outputs/
-*.log
-report.json
-checkpoint/
-checkpoints/
-
-# 4. 파이썬 컴파일 및 가상환경 캐시 제외
+# Python
 __pycache__/
 *.pyc
-.ipynb_checkpoints/
-.venv/
-venv/
+*.pyo
+*.pyd
+.Python
 env/
-.idea/
-.vscode/
+venv/
+.venv/
 
-# 5. GitHub 업로드에서 제외할 파일 (로컬에만 유지)
-*.docx
-*.pdf
-*.pptx
-*.zip
-silentcipher/
-SilentCipher walkthrough
-implementation_plan.md
+# Data and Checkpoints
+data/
+checkpoints/
+results/
+*.pth
+*.pt
+*.tar.gz
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
