@@ -3,15 +3,15 @@
 ## 개요 (Overview)
 본 코드는 SurvAlign-P의 가장 핵심적인 가정인 **"물리적으로 워터마크 잔차가 잘 살아남는 위치(Survival Map)가, 실제로 Decoder가 워터마크를 복호하는 데 유용하게 사용하는 위치(Decoder Utility Map)와 일치하는가?"**를 실험적으로 검증하기 위한 분석용 프레임워크입니다.
 
-이 분석 결과는 향후 워터마크 개선 전략을 결정짓는 중요한 나침반이 됩니다.
+이 분석 결과는 향후 워터마크 개선 전략을 결정짓는 중요한 나침반이 됩니다. 특히, 본 Phase 1에서는 직관적인 인과관계 검증을 위해 맵을 이진화(True/False, 예: Top 20% 마스킹)하여 성과를 입증하지만, 실제 Phase 2 본학습에서는 이 이진 마스크가 아닌 연속적인 점수(Continuous Score)를 바탕으로 정교하게 가중치를 조율(Soft Weighting)하게 됩니다.
 
 ## 실행 방법 (How to Run)
 
-본 환경은 CUDA GPU를 권장하며, 필수 패키지(`pesq`, `pystoi`, `scipy`, `matplotlib`)가 설치되어 있어야 합니다.
+본 환경은 CUDA GPU를 권장하며, 필수 패키지(`pesq`, `pystoi`, `scipy`, `matplotlib`)가 설치되어 있어야 합니다. 이제 단일 데이터셋이 아닌 다중 데이터셋(LibriSpeech, VCTK, LJSpeech)을 완벽히 지원합니다.
 
 ```bash
-# 기본 실행 (Calibration 세트 중 20샘플 한정으로 빠른 평가)
-python phase1_attribution.py
+# 기본 실행 (데이터셋 선택 가능: librispeech, vctk, ljspeech)
+python phase1_attribution.py --dataset_type librispeech --split test
 ```
 
 ## 주요 출력물 및 해석 가이드
