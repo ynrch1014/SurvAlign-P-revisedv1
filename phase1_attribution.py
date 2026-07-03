@@ -21,7 +21,8 @@ from tqdm import tqdm
 # 기존 코드 인프라 재사용
 from survalign_p import (
     AlignMarkManager, 
-    RealLibriSpeechDataset, 
+    RealLibriSpeechDataset,
+    UnifiedSpeechDataset,
     DifferentiableDistortion,
     stft_audio, 
     istft_audio, 
@@ -60,7 +61,10 @@ def get_top_k_mask(map_tensor, top_ratio=0.2):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset_name", type=str, default="train-clean-100", help="사용할 데이터셋 (예: train-clean-100)")
+    parser.add_argument("--dataset_type", type=str, default="librispeech",
+                        choices=["librispeech", "vctk", "ljspeech"],
+                        help="사용할 데이터셋 유형 (librispeech, vctk, ljspeech)")
+    parser.add_argument("--dataset_name", type=str, default="train-clean-100", help="LibriSpeech 서브셋 (예: train-clean-100)")
     parser.add_argument("--split", type=str, default="test", help="검증에 사용할 분할 (test 또는 calib)")
     parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--max_samples", type=int, default=-1, help="분석할 최대 샘플 수 (-1: 전체 데이터셋)")
@@ -76,8 +80,12 @@ def main():
     alignmark = AlignMarkManager(device)
     distorter = DifferentiableDistortion(sr=16000, vae=alignmark.vae).to(device)
     
-    print(f"[INFO] Loading Dataset: {args.dataset_name} ({args.split} split)...")
-    dataset = RealLibriSpeechDataset(dataset_name=args.dataset_name, split=args.split)
+    print(f"[INFO] Loading Dataset: {args.dataset_type} ({args.split} split)...")
+    dataset = UnifiedSpeechDataset(
+        dataset_type=args.dataset_type,
+        dataset_name=args.dataset_name,
+        split=args.split
+    )
     dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=0)
     
     processed_samples = 0
@@ -211,7 +219,9 @@ def main():
         print(f"  {cond_name:<30}| {mean_ber:.4f}    | {acc:.4f}")
         
     # 파일에 기록
-    with open("results/phase1_summary.txt", "w", encoding="utf-8") as f:
+    summary_file = f"results/phase1_summary_{args.dataset_type}.txt"
+    with open(summary_file, "w", encoding="utf-8") as f:
+        f.write(f"Dataset: {args.dataset_type}\n")
         f.write(f"N={len(all_pearson)}\n")
         f.write(f"Pearson r: {r_mean:.4f} ± {r_std:.4f}\n")
         f.write(f"Spearman rho: {rho_mean:.4f} ± {rho_std:.4f}\n")
@@ -219,7 +229,7 @@ def main():
         for cond_name, bers in masking_results.items():
             f.write(f"{cond_name}: Bit Acc {1.0 - np.mean(bers):.4f}\n")
             
-    print("\n[INFO] Results saved to results/phase1_summary.txt and results/phase1_map_comparison.png")
+    print(f"\n[INFO] Results saved to {summary_file} and results/phase1_map_comparison.png")
     print("="*60)
 
 if __name__ == "__main__":

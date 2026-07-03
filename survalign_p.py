@@ -194,6 +194,258 @@ class RealLibriSpeechDataset(Dataset):
         return wav, msg
 
 
+class UnifiedSpeechDataset(Dataset):
+    """LibriSpeech, VCTK, LJSpeech를 통합 지원하는 범용 음성 데이터셋.
+    
+    원논문(AlignMark, ICME 2026)의 3-데이터셋 실험 세팅과 일치시키기 위해 구현.
+    모든 데이터셋에서 동일한 (wav, msg) 인터페이스를 제공합니다.
+    
+    Args:
+        dataset_type: "librispeech", "vctk", "ljspeech" 중 선택
+        dataset_name: LibriSpeech 전용 서브셋 이름 (예: "train-clean-100", "dev-clean")
+        download: 데이터가 없을 시 자동 다운로드 여부
+        segment_len: 세그먼트 길이 (샘플 수, 기본 32000 = 2초)
+        split: "train", "calib", "test" 중 선택
+    """
+
+    def __init__(self, dataset_type="librispeech", dataset_name="dev-clean", 
+                 download=True, segment_len=32000, split="train"):
+        self.dataset_type = dataset_type.lower()
+        self.dataset_name = dataset_name
+        self.segment_len = segment_len
+        self.sample_rate = 16000
+        self.split = split
+        self.resamplers = {}  # Resampler 캐시
+
+        if self.dataset_type == "librispeech":
+            self._init_librispeech(download)
+        elif self.dataset_type == "vctk":
+            self._init_vctk(download)
+        elif self.dataset_type == "ljspeech":
+            self._init_ljspeech(download)
+        else:
+            raise ValueError(
+                f"지원하지 않는 데이터셋 유형: {self.dataset_type}. "
+                "'librispeech', 'vctk', 'ljspeech' 중 선택하세요."
+            )
+
+    def _init_librispeech(self, download):
+        """LibriSpeech 초기화 (기존 RealLibriSpeechDataset 로직 재사용)."""
+        self.data_dir = f"./data/LibriSpeech/{self.dataset_name}"
+
+        if download and (not os.path.exists(self.data_dir) or not os.listdir(self.data_dir)):
+            self._download_librispeech()
+
+        all_files = [
+            os.path.join(dp, f)
+            for dp, dn, fn in os.walk(self.data_dir)
+            for f in fn
+            if f.endswith((".flac", ".wav"))
+        ]
+        if len(all_files) == 0:
+            raise FileNotFoundError(
+                f"LibriSpeech 데이터가 {self.data_dir}에 존재하지 않습니다. "
+                "download=True로 설정하거나 데이터를 직접 배치하세요."
+            )
+
+        # 화자 ID 기준 격리 분할
+        file_spk_pairs = []
+        for f in all_files:
+            spk_id = os.path.basename(f).split("-")[0]
+            file_spk_pairs.append((f, spk_id))
+
+        self.files = self._split_by_speaker(file_spk_pairs)
+
+    def _init_vctk(self, download):
+        """VCTK_092 초기화 (torchaudio 활용, 화자 기반 분할)."""
+        self.data_dir = "./data/VCTK"
+        vctk_audio_dir = os.path.join(self.data_dir, "VCTK-Corpus-0.92", "wav48_silence_trimmed")
+        
+        # torchaudio로 다운로드 시도, 실패 시 수동 경로 확인
+        if download and not os.path.exists(vctk_audio_dir):
+            os.makedirs(self.data_dir, exist_ok=True)
+            print(f"[DOWNLOAD] VCTK_092 다운로드 중... (약 10.9GB, 시간이 걸릴 수 있습니다)")
+            try:
+                torchaudio.datasets.VCTK_092(root=self.data_dir, download=True)
+                print("[SUCCESS] VCTK_092 다운로드 완료.")
+            except Exception as e:
+                print(f"[WARNING] torchaudio를 통한 VCTK 다운로드 실패: {e}")
+                print(f"[INFO] {vctk_audio_dir}에 VCTK 데이터를 수동 배치해 주세요.")
+        
+        # wav48_silence_trimmed 폴더에서 오디오 파일 검색
+        if not os.path.exists(vctk_audio_dir):
+            # 대안 경로 탐색
+            alt_dirs = [
+                os.path.join(self.data_dir, "wav48_silence_trimmed"),
+                os.path.join(self.data_dir, "wav48"),
+            ]
+            for alt in alt_dirs:
+                if os.path.exists(alt):
+                    vctk_audio_dir = alt
+                    break
+            else:
+                raise FileNotFoundError(
+                    f"VCTK 데이터가 {self.data_dir}에 존재하지 않습니다. "
+                    "download=True로 설정하거나 데이터를 직접 배치하세요."
+                )
+        
+        all_files = [
+            os.path.join(dp, f)
+            for dp, dn, fn in os.walk(vctk_audio_dir)
+            for f in fn
+            if f.endswith((".flac", ".wav"))
+        ]
+        if len(all_files) == 0:
+            raise FileNotFoundError(f"VCTK 오디오 파일이 {vctk_audio_dir}에서 발견되지 않았습니다.")
+
+        # VCTK 파일명 형식: p225_001_mic1.flac → 화자 ID = p225
+        file_spk_pairs = []
+        for f in all_files:
+            basename = os.path.basename(f)
+            spk_id = basename.split("_")[0]  # "p225"
+            file_spk_pairs.append((f, spk_id))
+
+        self.files = self._split_by_speaker(file_spk_pairs)
+
+    def _init_ljspeech(self, download):
+        """LJSpeech 초기화 (torchaudio 활용, 파일 인덱스 기반 분할)."""
+        self.data_dir = "./data/LJSpeech"
+        lj_wavs_dir = os.path.join(self.data_dir, "LJSpeech-1.1", "wavs")
+        
+        if download and not os.path.exists(lj_wavs_dir):
+            os.makedirs(self.data_dir, exist_ok=True)
+            print(f"[DOWNLOAD] LJSpeech 다운로드 중... (약 2.6GB)")
+            try:
+                torchaudio.datasets.LJSPEECH(root=self.data_dir, download=True)
+                print("[SUCCESS] LJSpeech 다운로드 완료.")
+            except Exception as e:
+                print(f"[WARNING] torchaudio를 통한 LJSpeech 다운로드 실패: {e}")
+                print(f"[INFO] {lj_wavs_dir}에 LJSpeech 데이터를 수동 배치해 주세요.")
+        
+        if not os.path.exists(lj_wavs_dir):
+            # 대안 경로 탐색
+            alt_dir = os.path.join(self.data_dir, "wavs")
+            if os.path.exists(alt_dir):
+                lj_wavs_dir = alt_dir
+            else:
+                raise FileNotFoundError(
+                    f"LJSpeech 데이터가 {self.data_dir}에 존재하지 않습니다. "
+                    "download=True로 설정하거나 데이터를 직접 배치하세요."
+                )
+        
+        all_files = sorted([
+            os.path.join(lj_wavs_dir, f)
+            for f in os.listdir(lj_wavs_dir)
+            if f.endswith((".wav", ".flac"))
+        ])
+        if len(all_files) == 0:
+            raise FileNotFoundError(f"LJSpeech 오디오 파일이 {lj_wavs_dir}에서 발견되지 않았습니다.")
+
+        # 단일 화자 → 파일 인덱스 기반 분할 (seed=42 고정으로 재현성 보장)
+        self.files = self._split_by_index(all_files)
+
+    def _split_by_speaker(self, file_spk_pairs):
+        """화자 ID 기준 80/10/10 격리 분할."""
+        unique_speakers = sorted(list(set([pair[1] for pair in file_spk_pairs])))
+        n_speakers = len(unique_speakers)
+
+        n_tr = int(n_speakers * 0.8)
+        n_cal = int(n_speakers * 0.1)
+
+        tr_spk = set(unique_speakers[:n_tr])
+        cal_spk = set(unique_speakers[n_tr:n_tr + n_cal])
+        te_spk = set(unique_speakers[n_tr + n_cal:])
+
+        if self.split == "train":
+            target_spk = tr_spk
+        elif self.split == "calib":
+            target_spk = cal_spk
+        else:
+            target_spk = te_spk
+
+        files = [pair[0] for pair in file_spk_pairs if pair[1] in target_spk]
+        print(f"[DATASET] {self.dataset_type.upper()} {self.split.upper()} 세트 "
+              f"화자 수: {len(target_spk)} / 파일 수: {len(files)}")
+        return files
+
+    def _split_by_index(self, all_files):
+        """파일 인덱스 기준 80/10/10 분할 (단일 화자 데이터셋용, seed=42 고정)."""
+        rng = np.random.RandomState(42)
+        indices = np.arange(len(all_files))
+        rng.shuffle(indices)
+
+        n_total = len(all_files)
+        n_tr = int(n_total * 0.8)
+        n_cal = int(n_total * 0.1)
+
+        if self.split == "train":
+            selected_idx = indices[:n_tr]
+        elif self.split == "calib":
+            selected_idx = indices[n_tr:n_tr + n_cal]
+        else:
+            selected_idx = indices[n_tr + n_cal:]
+
+        files = [all_files[i] for i in selected_idx]
+        print(f"[DATASET] {self.dataset_type.upper()} {self.split.upper()} 세트 "
+              f"파일 수: {len(files)} (인덱스 기반 분할, seed=42)")
+        return files
+
+    def _download_librispeech(self):
+        """LibriSpeech 다운로드 (기존 로직 재사용)."""
+        tar_name = f"{self.dataset_name}.tar.gz"
+        tar_path = f"./data/{tar_name}"
+        os.makedirs("./data", exist_ok=True)
+
+        min_size = 300000000 if self.dataset_name == "dev-clean" else 6000000000
+
+        if not os.path.exists(tar_path) or os.path.getsize(tar_path) < min_size:
+            print(f"[DOWNLOAD] LibriSpeech {self.dataset_name} 다운로드 중...")
+            url = f"https://www.openslr.org/resources/12/{tar_name}"
+            urllib.request.urlretrieve(url, tar_path)
+
+        print("[DOWNLOAD] 압축 해제 중...")
+        with tarfile.open(tar_path, "r:gz") as tar:
+            tar.extractall(path="./data/")
+
+        if os.path.exists(tar_path):
+            try:
+                os.remove(tar_path)
+            except Exception:
+                pass
+        print(f"[SUCCESS] {self.dataset_name} 데이터셋 다운로드 및 압축 해제 완료.")
+
+    def __len__(self):
+        return len(self.files)
+
+    def __getitem__(self, idx):
+        import soundfile as sf
+        data, sr = sf.read(self.files[idx], dtype="float32")
+        if data.ndim == 1:
+            data = data[np.newaxis, :]
+        else:
+            data = data.T
+        wav = torch.from_numpy(data)
+        if wav.shape[0] > 1:
+            wav = torch.mean(wav, dim=0, keepdim=True)
+
+        # 리샘플링 (VCTK: 48kHz, LJSpeech: 22050Hz → 16kHz)
+        if sr != self.sample_rate:
+            if sr not in self.resamplers:
+                import torchaudio.transforms as T
+                self.resamplers[sr] = T.Resample(sr, self.sample_rate)
+            wav = self.resamplers[sr](wav)
+
+        if wav.shape[-1] > self.segment_len:
+            max_start = wav.shape[-1] - self.segment_len
+            start = torch.randint(0, max_start + 1, (1,)).item()
+            wav = wav[:, start:start + self.segment_len]
+        else:
+            wav = F.pad(wav, (0, self.segment_len - wav.shape[-1]))
+
+        msg = torch.randint(0, 2, (16,))
+        return wav, msg
+
+
 # =======================================================
 # 2. 미분 가능한 채널 및 Reconstruction 왜곡
 # =======================================================
@@ -795,10 +1047,11 @@ def run_training(args):
     alignmark = AlignMarkManager(device)
 
     # ---- 데이터 로드 (화자 격리 분할 적용) ----
-    print(f"\n[초기화] 데이터셋 ({args.dataset_name}) 로드...")
-    train_dataset = RealLibriSpeechDataset(dataset_name=args.dataset_name, download=True, split="train")
-    calib_dataset = RealLibriSpeechDataset(dataset_name=args.dataset_name, download=False, split="calib")
-    test_dataset = RealLibriSpeechDataset(dataset_name=args.dataset_name, download=False, split="test")
+    dataset_type = getattr(args, 'dataset_type', 'librispeech')
+    print(f"\n[초기화] 데이터셋 ({dataset_type} / {args.dataset_name}) 로드...")
+    train_dataset = UnifiedSpeechDataset(dataset_type=dataset_type, dataset_name=args.dataset_name, download=True, split="train")
+    calib_dataset = UnifiedSpeechDataset(dataset_type=dataset_type, dataset_name=args.dataset_name, download=False, split="calib")
+    test_dataset = UnifiedSpeechDataset(dataset_type=dataset_type, dataset_name=args.dataset_name, download=False, split="test")
 
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=0)
     calib_loader = DataLoader(calib_dataset, batch_size=args.batch_size, shuffle=False, num_workers=0)
@@ -1244,8 +1497,11 @@ def run_training(args):
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="SurvAlign-P Research Training and Evaluation Engine")
-    parser.add_argument("--dataset_name", type=str, default="dev-clean", choices=["dev-clean", "train-clean-100"],
-                        help="Name of LibriSpeech dataset split")
+    parser.add_argument("--dataset_type", type=str, default="librispeech",
+                        choices=["librispeech", "vctk", "ljspeech"],
+                        help="Dataset type to use (librispeech, vctk, ljspeech)")
+    parser.add_argument("--dataset_name", type=str, default="dev-clean",
+                        help="LibriSpeech subset name (e.g., dev-clean, train-clean-100)")
     parser.add_argument("--n_gate_steps", type=int, default=1000, help="Steps for Survival Gate training")
     parser.add_argument("--n_presence_steps", type=int, default=500, help="Steps for Presence Head training")
     parser.add_argument("--n_eval_steps", type=int, default=100, help="Steps for final evaluation")

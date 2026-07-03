@@ -27,7 +27,8 @@ from pystoi import stoi as compute_stoi
 # 기존 인프라 재사용
 from survalign_p import (
     AlignMarkManager, 
-    RealLibriSpeechDataset, 
+    RealLibriSpeechDataset,
+    UnifiedSpeechDataset,
     DifferentiableDistortion,
     stft_audio, 
     istft_audio, 
@@ -66,7 +67,7 @@ class SimplifiedSurvivalGate(nn.Module):
 
 def train_gate(args, device, alignmark, distorter, dataset_train, dataset_val):
     print(f"\n[TRAIN] Starting Full Gate Training in mode: {args.mode}")
-    print(f"[INFO] Dataset: {args.dataset_name}, Epochs: {args.epochs}, Batch Size: {args.batch_size}")
+    print(f"[INFO] Dataset: {args.dataset_type}, Epochs: {args.epochs}, Batch Size: {args.batch_size}")
     
     gate = SimplifiedSurvivalGate(in_channels=3).to(device)
     optimizer = optim.AdamW(gate.parameters(), lr=args.lr, weight_decay=1e-4)
@@ -78,7 +79,7 @@ def train_gate(args, device, alignmark, distorter, dataset_train, dataset_val):
     os.makedirs("./checkpoints", exist_ok=True)
     
     best_loss = float('inf')
-    ckpt_name = f"best_gate_{args.mode}_{args.map_type}.pth" if args.mode == "proposed_gate" else f"best_gate_{args.mode}.pth"
+    ckpt_name = f"best_gate_{args.dataset_type}_{args.mode}_{args.map_type}.pth" if args.mode == "proposed_gate" else f"best_gate_{args.dataset_type}_{args.mode}.pth"
     ckpt_path = f"./checkpoints/{ckpt_name}"
     
     for epoch in range(1, args.epochs + 1):
@@ -113,10 +114,18 @@ def train_gate(args, device, alignmark, distorter, dataset_train, dataset_val):
             
             optimizer.zero_grad()
             r_gated_complex, gate_scale = gate(feature_pack, r0_complex)
-            spec_gated = spec_clean + r_gated_complex
-            wav_gated = istft_audio(spec_gated, length=wav.shape[-1], n_fft=256, hop_length=64)
-            if wav.dim() == 3:
-                wav_gated = wav_gated.unsqueeze(1)
+            
+            # 시간 도메인 변환 후 L2 Projection 적용 (Energy Cheating 엄격 차단)
+            r0_2d = residual.squeeze(1)
+            wav_2d = wav.squeeze(1)
+            r_gated = istft_audio(r_gated_complex, length=wav_2d.shape[-1], n_fft=256, hop_length=64)
+            
+            norm_r0 = torch.norm(r0_2d, p=2, dim=-1, keepdim=True) + 1e-8
+            norm_gated = torch.norm(r_gated, p=2, dim=-1, keepdim=True) + 1e-8
+            scale_factor = torch.minimum(torch.tensor(1.0, device=device), norm_r0 / norm_gated)
+            
+            r_gated_final = r_gated * scale_factor
+            wav_gated = (wav_2d + r_gated_final).unsqueeze(1)
             
             # Loss 계산
             loss_robust = 0
@@ -152,7 +161,7 @@ def train_gate(args, device, alignmark, distorter, dataset_train, dataset_val):
     return gate
 
 def evaluate(args, device, alignmark, distorter, dataset_test, gate=None):
-    print(f"\n[EVAL] Starting Full Evaluation in mode: {args.mode}")
+    print(f"\n[EVAL] Starting Full Evaluation in mode: {args.mode} on dataset: {args.dataset_type}")
     dataloader = DataLoader(dataset_test, batch_size=args.batch_size, shuffle=False, num_workers=0)
     
     if gate is not None:
@@ -194,10 +203,17 @@ def evaluate(args, device, alignmark, distorter, dataset_test, gate=None):
                 feature_pack = torch.stack([wav_mag, res_mag, guide_map], dim=1)
                 r_gated_complex, gate_scale = gate(feature_pack, r0_complex)
                 
-                spec_gated = spec_clean + r_gated_complex
-                wav_final = istft_audio(spec_gated, length=wav.shape[-1], n_fft=256, hop_length=64)
-                if wav.dim() == 3:
-                    wav_final = wav_final.unsqueeze(1)
+                # 평가 시에도 L2 Projection 엄격 적용
+                r0_2d = residual.squeeze(1)
+                wav_2d = wav.squeeze(1)
+                r_gated = istft_audio(r_gated_complex, length=wav_2d.shape[-1], n_fft=256, hop_length=64)
+                
+                norm_r0 = torch.norm(r0_2d, p=2, dim=-1, keepdim=True) + 1e-8
+                norm_gated = torch.norm(r_gated, p=2, dim=-1, keepdim=True) + 1e-8
+                scale_factor = torch.minimum(torch.tensor(1.0, device=device), norm_r0 / norm_gated)
+                
+                r_gated_final = r_gated * scale_factor
+                wav_final = (wav_2d + r_gated_final).unsqueeze(1)
             
             # Fidelity Metrics
             for b in range(B):
@@ -249,10 +265,10 @@ def evaluate(args, device, alignmark, distorter, dataset_test, gate=None):
     with open(csv_file, mode='a', newline='') as f:
         writer = csv.writer(f)
         if not file_exists:
-            headers = ["Mode", "PESQ", "STOI", "SI-SDR", "L2_Ratio"] + dist_types
+            headers = ["Dataset", "Mode", "PESQ", "STOI", "SI-SDR", "L2_Ratio"] + dist_types
             writer.writerow(headers)
             
-        row = [args.mode, 
+        row = [args.dataset_type, args.mode, 
                f"{np.mean(metrics['PESQ']):.4f}", 
                f"{np.mean(metrics['STOI']):.4f}", 
                f"{np.mean(metrics['SI_SDR']):.4f}",
@@ -268,32 +284,45 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", type=str, required=True, 
                         choices=["baseline", "uniform", "random_gate", "proposed_gate"])
+    parser.add_argument("--dataset_type", type=str, default="librispeech",
+                        choices=["librispeech", "vctk", "ljspeech"],
+                        help="사용할 데이터셋 유형 (librispeech, vctk, ljspeech)")
     parser.add_argument("--dataset_name", type=str, default="train-clean-100", 
-                        help="대용량 본학습용 데이터셋 이름 (예: train-clean-100, dev-clean)")
+                        help="LibriSpeech 서브셋 이름 (예: train-clean-100, dev-clean)")
     parser.add_argument("--epochs", type=int, default=3, help="Training epochs")
     parser.add_argument("--batch_size", type=int, default=8, help="Batch size (GPU 메모리에 맞춰 조절)")
     parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--map_type", type=str, default="survival",
+                        choices=["survival", "gradient"],
+                        help="proposed_gate 모드에서 사용할 가이드 맵 유형")
     parser.add_argument("--test_only", action="store_true", help="학습을 생략하고 저장된 체크포인트로 평가만 수행")
     args = parser.parse_args()
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[INFO] Using Device: {device}")
+    print(f"[INFO] Dataset Type: {args.dataset_type}")
     
     alignmark = AlignMarkManager(device)
     distorter = DifferentiableDistortion(sr=16000, vae=alignmark.vae).to(device)
     
-    # 본학습용 대용량 데이터셋 로드 (데이터가 없으면 자동 다운로드됨)
-    print(f"[INFO] Loading Dataset: {args.dataset_name} (Train/Val/Test Split)")
-    dataset_train = RealLibriSpeechDataset(dataset_name=args.dataset_name, split="train")
-    dataset_val = RealLibriSpeechDataset(dataset_name=args.dataset_name, split="calib")
-    dataset_test = RealLibriSpeechDataset(dataset_name=args.dataset_name, split="test")
+    # 데이터셋 로드 (UnifiedSpeechDataset 활용)
+    print(f"[INFO] Loading Dataset: {args.dataset_type} (Train/Val/Test Split)")
+    dataset_train = UnifiedSpeechDataset(
+        dataset_type=args.dataset_type, dataset_name=args.dataset_name, split="train"
+    )
+    dataset_val = UnifiedSpeechDataset(
+        dataset_type=args.dataset_type, dataset_name=args.dataset_name, split="calib"
+    )
+    dataset_test = UnifiedSpeechDataset(
+        dataset_type=args.dataset_type, dataset_name=args.dataset_name, split="test"
+    )
     
     gate = None
     if args.mode in ["random_gate", "proposed_gate"]:
         if args.test_only:
             print(f"[INFO] Test Only mode: Loading pretrained checkpoint...")
             gate = SimplifiedSurvivalGate(in_channels=3).to(device)
-            ckpt_name = f"best_gate_{args.mode}_{args.map_type}.pth" if args.mode == "proposed_gate" else f"best_gate_{args.mode}.pth"
+            ckpt_name = f"best_gate_{args.dataset_type}_{args.mode}_{args.map_type}.pth" if args.mode == "proposed_gate" else f"best_gate_{args.dataset_type}_{args.mode}.pth"
             ckpt_path = f"./checkpoints/{ckpt_name}"
             if os.path.exists(ckpt_path):
                 gate.load_state_dict(torch.load(ckpt_path, map_location=device))
