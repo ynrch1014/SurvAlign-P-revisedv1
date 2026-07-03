@@ -77,7 +77,7 @@ def train_gate(args, device, alignmark, distorter, dataset_train, dataset_val):
     # 본학습용 대용량 DataLoader 설정 (num_workers 지정)
     dataloader = DataLoader(dataset_train, batch_size=args.batch_size, shuffle=True, drop_last=True, num_workers=0)
     
-    dist_types = ["noise", "lowpass", "bandpass", "resample", "reconstruct", "mp3"]
+    dist_types = ["noise", "lowpass", "bandpass", "resample", "reconstruct", "mp3", "facodec_proxy"]
     os.makedirs("./checkpoints", exist_ok=True)
     
     best_loss = float('inf')
@@ -171,7 +171,7 @@ def evaluate(args, device, alignmark, distorter, dataset_test, gate=None):
     if gate is not None:
         gate.eval()
         
-    dist_types = ["Clean", "noise", "lowpass", "bandpass", "resample", "reconstruct", "mp3"]
+    dist_types = ["Clean", "noise", "lowpass", "bandpass", "resample", "reconstruct", "mp3", "facodec_proxy"]
     results = {d: [] for d in dist_types}
     metrics = {"PESQ": [], "STOI": [], "SI_SDR": [], "L2_Ratio": []}
     
