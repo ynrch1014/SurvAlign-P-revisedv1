@@ -296,6 +296,7 @@ def main():
                         choices=["survival", "gradient"],
                         help="proposed_gate 모드에서 사용할 가이드 맵 유형")
     parser.add_argument("--test_only", action="store_true", help="학습을 생략하고 저장된 체크포인트로 평가만 수행")
+    parser.add_argument("--load_weight", type=str, default="", help="특정 가중치 파일 경로를 강제로 지정하여 평가 (Cross-Dataset 평가용)")
     args = parser.parse_args()
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -319,11 +320,15 @@ def main():
     
     gate = None
     if args.mode in ["random_gate", "proposed_gate"]:
-        if args.test_only:
-            print(f"[INFO] Test Only mode: Loading pretrained checkpoint...")
+        if args.test_only or args.load_weight:
+            print(f"[INFO] Test / Cross-Eval mode: Loading pretrained checkpoint...")
             gate = SimplifiedSurvivalGate(in_channels=3).to(device)
-            ckpt_name = f"best_gate_{args.dataset_type}_{args.mode}_{args.map_type}.pth" if args.mode == "proposed_gate" else f"best_gate_{args.dataset_type}_{args.mode}.pth"
-            ckpt_path = f"./checkpoints/{ckpt_name}"
+            if args.load_weight:
+                ckpt_path = args.load_weight
+            else:
+                ckpt_name = f"best_gate_{args.dataset_type}_{args.mode}_{args.map_type}.pth" if args.mode == "proposed_gate" else f"best_gate_{args.dataset_type}_{args.mode}.pth"
+                ckpt_path = f"./checkpoints/{ckpt_name}"
+                
             if os.path.exists(ckpt_path):
                 gate.load_state_dict(torch.load(ckpt_path, map_location=device))
                 print(f"[INFO] Successfully loaded {ckpt_path}")

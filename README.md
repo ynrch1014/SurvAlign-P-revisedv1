@@ -110,18 +110,25 @@ python phase1_attribution.py --dataset_type vctk --batch_size 4
 5가지 논문용 실험 모드를 지원합니다: `baseline`, `uniform`, `random_gate`, `proposed_gate (survival)`, `proposed_gate (gradient)`
 
 **✅ 데이터셋 분할 및 활용 규정 (Train / Test Split)**
-본 프로젝트는 리뷰어의 공격을 완벽히 방어하기 위해 **두 가지 평가 트랙**을 동시 지원합니다.
-1. **개별 평가 트랙 (`librispeech`, `vctk`, `ljspeech`)**: 각 데이터셋 내에서 80/10/10 비율로 분할. **화자 격리 분할(Speaker Disjoint Split)**을 엄격히 적용하여 과적합을 차단하고, 특정 데이터셋(도메인) 내에서의 순수 성능을 증명합니다 (Ablation Study용).
-2. **원 논문 모방 SOTA 트랙 (`combined`)**: 원 논문인 AlignMark와 완벽히 동일한 조건에서 비교하기 위해 세 데이터셋을 하나로 병합. **LibriSpeech 200개 + VCTK 200개 + LJSpeech 200개 = 총 600개의 혼합 평가셋(Test)**을 고정으로 추출하고, 나머지 방대한 모든 데이터를 하나로 뭉쳐 단일 거대 모델을 학습합니다 (Main Table 1 비교용).
+본 프로젝트는 리뷰어의 공격을 완벽히 방어하기 위해 **세 가지 평가 트랙**을 동시 지원합니다.
+
+| 트랙 명칭 | `--dataset_type` | 훈련 데이터 (Train) | 평가 데이터 (Test) | 연구/방어 목적 |
+|:---|:---|:---|:---|:---|
+| **1. 개별 증명 트랙** | `librispeech` (등) | 1개 도메인 80% | 동일 도메인 10% (화자격리) | 도메인 독립적인 본질적 성능 입증 (Ablation) |
+| **2. Cross-Dataset 트랙** | `vctk` + `--load_weight` | A 도메인 (예: LibriSpeech) | B 도메인 (예: VCTK) | 미학습 OOD(Out-of-Distribution)에 대한 극강의 일반화 성능 입증 |
+| **3. 원 논문 모방 SOTA 트랙**| `combined` | 3개 데이터셋 전체 (600개 제외) | 3개 데이터셋 랜덤 600개 | 원 논문 AlignMark와 완벽히 동일한 조건에서의 1:1 최고 성능(SOTA) 비교 |
 
 ```bash
-# 개별 실험 실행 예시
+# [트랙 1] 개별 실험 실행 예시
 python phase2_training.py --mode proposed_gate --map_type survival --dataset_type vctk --epochs 5 --batch_size 8
 
-# 원 논문 방식(Test 600개)으로 SOTA 단일 모델 거대 학습
+# [트랙 2] Cross-Dataset 평가 (LibriSpeech로 훈련한 모델을 VCTK에서 테스트)
+python phase2_training.py --mode proposed_gate --map_type survival --dataset_type vctk --load_weight ./checkpoints/best_gate_librispeech_proposed_gate_survival.pth
+
+# [트랙 3] 원 논문 방식(Test 600개)으로 SOTA 단일 모델 거대 학습 및 평가
 python phase2_training.py --mode proposed_gate --map_type survival --dataset_type combined --epochs 5 --batch_size 8
 
-# 3 데이터셋 × 5 모드 = 총 15개 논문 실험 일괄 훈련 및 평가
+# 3 데이터셋 × 5 모드 = 총 15개 논문 실험 일괄 훈련 및 평가 (트랙 1)
 run_all_experiments.bat
 
 # 저장된 체크포인트로 전체 실험 평가만 일괄 수행
