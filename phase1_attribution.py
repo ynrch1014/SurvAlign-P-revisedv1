@@ -229,12 +229,23 @@ def main():
         print(f"  {cond_name:<30}| {mean_ber:.4f}    | {acc:.4f}")
         
     t_stat, p_val = ttest_rel(masking_results["High-Survival (Top 20%)"], masking_results["Low-Survival (Bottom 20%)"])
-    print(f"\n[3] Branching Decision (Paired t-test)")
+    print(f"\n[3] Branching Decision (Multi-stage Logic)")
     print(f" - High vs Low Survival BER p-value: {p_val:.4e} (t-stat: {t_stat:.4f})")
-    if p_val < 0.05 and t_stat < 0:
-        print(" - Conclusion: SIGNIFICANT CAUSALITY DETECTED (High-Survival is better). Proceed to Phase 2.")
+    
+    causality_proven = (p_val < 0.05 and t_stat < 0)
+    
+    if r_mean > 0.5:
+        print(" - Conclusion: STRONG CORRELATION (r > 0.5). Survival Map matches Decoder needs.")
+        print("   -> Proceed to Phase 2 (Survival Gate).")
+    elif r_mean < 0.3:
+        print(" - Conclusion: WEAK CORRELATION (r < 0.3). Survival Map does NOT match Decoder needs.")
+        print("   -> Branch to Phase 2B (Decoder-guided).")
     else:
-        print(" - Conclusion: NO SIGNIFICANT CAUSALITY (or reversed effect). Branch to Phase 2B might lack justification.")
+        print(" - Conclusion: GRAY AREA (0.3 <= r <= 0.5). Fallback to Causal Masking Result.")
+        if causality_proven:
+            print("   -> Masking proves High-Survival regions hold crucial utility. Proceed to Phase 2.")
+        else:
+            print("   -> Masking failed to prove causality. Branch to Phase 2B (Decoder-guided).")
         
     # 파일에 기록
     summary_file = f"results/phase1_summary_{args.dataset_type}.txt"
