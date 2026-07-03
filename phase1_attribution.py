@@ -14,7 +14,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-from scipy.stats import pearsonr, spearmanr
+from scipy.stats import pearsonr, spearmanr, ttest_rel
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
@@ -139,11 +139,21 @@ def main():
             all_iou.append(iou)
         
         res_spec = stft_audio(residual.squeeze(1), n_fft=256, hop_length=64)
-        mask_high_surv = get_top_k_mask(survival_map, top_ratio=0.2)
-        mask_low_surv = 1.0 - get_top_k_mask(survival_map, top_ratio=0.8)
-        mask_high_grad = get_top_k_mask(decoder_map, top_ratio=0.2)
-        mask_low_grad = 1.0 - get_top_k_mask(decoder_map, top_ratio=0.8)
-        mask_rand = (torch.rand_like(survival_map) >= 0.8).float()
+        
+        # Soft mask generation via Gaussian blur
+        kernel = torch.ones(1, 1, 5, 5, device=device) / 25.0
+        
+        mask_high_surv = get_top_k_mask(survival_map, top_ratio=0.2).unsqueeze(1)
+        mask_low_surv = (1.0 - get_top_k_mask(survival_map, top_ratio=0.8)).unsqueeze(1)
+        mask_high_grad = get_top_k_mask(decoder_map, top_ratio=0.2).unsqueeze(1)
+        mask_low_grad = (1.0 - get_top_k_mask(decoder_map, top_ratio=0.8)).unsqueeze(1)
+        mask_rand = (torch.rand_like(survival_map) >= 0.8).float().unsqueeze(1)
+        
+        mask_high_surv = F.conv2d(mask_high_surv, kernel, padding=2).squeeze(1)
+        mask_low_surv = F.conv2d(mask_low_surv, kernel, padding=2).squeeze(1)
+        mask_high_grad = F.conv2d(mask_high_grad, kernel, padding=2).squeeze(1)
+        mask_low_grad = F.conv2d(mask_low_grad, kernel, padding=2).squeeze(1)
+        mask_rand = F.conv2d(mask_rand, kernel, padding=2).squeeze(1)
         
         conditions = {
             "Full (Baseline)": torch.ones_like(mask_high_surv),
@@ -218,6 +228,14 @@ def main():
         acc = 1.0 - mean_ber
         print(f"  {cond_name:<30}| {mean_ber:.4f}    | {acc:.4f}")
         
+    t_stat, p_val = ttest_rel(masking_results["High-Survival (Top 20%)"], masking_results["Low-Survival (Bottom 20%)"])
+    print(f"\n[3] Branching Decision (Paired t-test)")
+    print(f" - High vs Low Survival BER p-value: {p_val:.4e}")
+    if p_val < 0.05:
+        print(" - Conclusion: SIGNIFICANT CAUSALITY DETECTED. Proceed to Phase 2.")
+    else:
+        print(" - Conclusion: NO SIGNIFICANT CAUSALITY. Branch to Phase 2B might lack justification.")
+        
     # 파일에 기록
     summary_file = f"results/phase1_summary_{args.dataset_type}.txt"
     with open(summary_file, "w", encoding="utf-8") as f:
@@ -228,6 +246,8 @@ def main():
         f.write(f"Top-20% IoU: {iou_mean:.4f} ± {iou_std:.4f}\n\n")
         for cond_name, bers in masking_results.items():
             f.write(f"{cond_name}: Bit Acc {1.0 - np.mean(bers):.4f}\n")
+            
+        f.write(f"\nBranching p-value: {p_val:.4e}\n")
             
     print(f"\n[INFO] Results saved to {summary_file} and results/phase1_map_comparison.png")
     print("="*60)

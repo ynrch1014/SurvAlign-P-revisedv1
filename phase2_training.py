@@ -7,7 +7,8 @@ Author: 정연재 (SKKU URP)
 1. baseline: 아무런 처리도 하지 않은 AlignMark 원본
 2. uniform: 에너지(L2) 제약을 맞추기 위해 균일하게 스케일링
 3. random_gate: 무작위 T-F 맵을 가이드로 사용하는 Gate 학습
-4. proposed_gate: Survival Map을 가이드로 사용하는 제안된 Gate 학습
+4. energy_gate: 국소 에너지(Magnitude) 기반 단순 증폭 Gate 학습 (Baseline)
+5. proposed_gate: Survival Map을 가이드로 사용하는 제안된 Gate 학습
 """
 
 import os
@@ -37,7 +38,8 @@ from survalign_p import (
     compute_ber,
     compute_si_sdr,
     chunks_to_bits,
-    normalize_per_sample
+    normalize_per_sample,
+    get_local_energy_masking_proxy
 )
 
 from phase1_attribution import compute_decoder_gradient_map
@@ -103,6 +105,8 @@ def train_gate(args, device, alignmark, distorter, dataset_train, dataset_val):
                 
                 if args.mode == "random_gate":
                     guide_map = torch.rand_like(wav_mag)
+                elif args.mode == "energy_gate":
+                    guide_map = get_local_energy_masking_proxy(wav)
                 elif args.mode == "proposed_gate" and args.map_type == "gradient":
                     with torch.enable_grad():
                         guide_map = compute_decoder_gradient_map(alignmark, wav_wm, msg).detach()
@@ -193,6 +197,8 @@ def evaluate(args, device, alignmark, distorter, dataset_test, gate=None):
                 
                 if args.mode == "random_gate":
                     guide_map = torch.rand_like(wav_mag)
+                elif args.mode == "energy_gate":
+                    guide_map = get_local_energy_masking_proxy(wav)
                 elif args.mode == "proposed_gate" and args.map_type == "gradient":
                     with torch.enable_grad():
                         guide_map = compute_decoder_gradient_map(alignmark, wav_wm, msg).detach()
@@ -283,7 +289,7 @@ def evaluate(args, device, alignmark, distorter, dataset_test, gate=None):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", type=str, required=True, 
-                        choices=["baseline", "uniform", "random_gate", "proposed_gate"])
+                        choices=["baseline", "uniform", "random_gate", "energy_gate", "proposed_gate"])
     parser.add_argument("--dataset_type", type=str, default="librispeech",
                         choices=["librispeech", "vctk", "ljspeech"],
                         help="사용할 데이터셋 유형 (librispeech, vctk, ljspeech)")
@@ -319,7 +325,7 @@ def main():
     )
     
     gate = None
-    if args.mode in ["random_gate", "proposed_gate"]:
+    if args.mode in ["random_gate", "energy_gate", "proposed_gate"]:
         if args.test_only or args.load_weight:
             print(f"[INFO] Test / Cross-Eval mode: Loading pretrained checkpoint...")
             gate = SimplifiedSurvivalGate(in_channels=3).to(device)

@@ -25,7 +25,8 @@
 1. **`run_baseline.bat`**: 아무 조작도 가하지 않은 AlignMark 원본 성능 측정.
 2. **`run_uniform.bat`**: Gate 스케일 증가량만큼 무작위로 증폭시켰을 때의 효과(Energy Control).
 3. **`run_random_gate.bat`**: 무작위 맵(Random Map)을 가이드로 학습한 Gate 성능 (위치 정보의 효과 검증용).
-4. **`run_proposed_gate.bat`**: 제안하는 **Survival Map 기반 Gate** 모델 성능.
+4. **`run_energy_gate.bat`**: 스펙트로그램의 단순 소리 크기(Local Energy)에 비례해 증폭시키는 Baseline (순환논리 방어용 핵심 대조군).
+5. **`run_proposed_gate.bat`**: 제안하는 **Survival Map 기반 Gate** 모델 성능.
 
 ## 주요 기능 및 최적화 사항 (본학습용)
 1. **Epoch 기반 Full Training**: 임의의 Step 기반이 아닌 정규 Epoch(기본 3~5 Epoch)를 돌며 선택된 데이터셋 전체를 학습합니다.

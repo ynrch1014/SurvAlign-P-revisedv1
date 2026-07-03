@@ -656,6 +656,9 @@ class DifferentiableDistortion(nn.Module):
         elif dtype == "reconstruct":
             n_q = kwargs.get("n_q", 8)
             return self.speech_reconstruct(wav, n_q=n_q)
+        elif dtype == "facodec_proxy":
+            # Using highly compressed VAE (n_q=2) as a proxy for neural codecs like FACodec
+            return self.speech_reconstruct(wav, n_q=2)
         elif dtype == "mp3":
             ratio = kwargs.get("cutoff_ratio", 0.7)
             ns = kwargs.get("noise_scale", 0.002)
@@ -740,6 +743,10 @@ def get_survival_map(wav_clean, wav_wm, distorter, n_fft=256, hop_length=64):
         mp3_clean = distorter(wav_clean_2d, "mp3", cutoff_ratio=0.7, seed=42)
         mp3_wm = distorter(wav_wm_2d, "mp3", cutoff_ratio=0.7, seed=42)
 
+        # 7. FACodec Proxy
+        facodec_clean = distorter(wav_clean_2d, "facodec_proxy")
+        facodec_wm = distorter(wav_wm_2d, "facodec_proxy")
+
         # STFT 계산
         spec_clean = stft_audio(wav_clean_2d, n_fft=n_fft, hop_length=hop_length)
         spec_wm = stft_audio(wav_wm_2d, n_fft=n_fft, hop_length=hop_length)
@@ -747,7 +754,7 @@ def get_survival_map(wav_clean, wav_wm, distorter, n_fft=256, hop_length=64):
         r0_spec = spec_wm - spec_clean
         r0_mag = torch.abs(r0_spec) + 1e-8
 
-        # 6개 공격 시나리오에 대해 q_ret 및 q_sir를 결합해 q_T 산출
+        # 7개 공격 시나리오에 대해 q_ret 및 q_sir를 결합해 q_T 산출
         attacks = [
             (awgn_clean, awgn_wm),
             (lp_clean, lp_wm),
@@ -755,6 +762,7 @@ def get_survival_map(wav_clean, wav_wm, distorter, n_fft=256, hop_length=64):
             (rs_clean, rs_wm),
             (rec_clean, rec_wm),
             (mp3_clean, mp3_wm),
+            (facodec_clean, facodec_wm),
         ]
         
         q_t_list = []

@@ -24,8 +24,7 @@ python phase1_attribution.py --dataset_type librispeech --split test
 * **Top-20% IoU**: 두 맵에서 상위 20%에 해당하는 핵심 T-F(Time-Frequency) 픽셀이 얼마나 일치하는지 비율(Intersection over Union).
 
 **[해석 기준]**
-* `r > 0.5`: Survival Map이 Decoder Utility를 상당히 잘 대변합니다. 기존 SurvAlign-P 설계를 신뢰할 수 있습니다.
-* `r < 0.3`: 물리적으로 신호가 많이 남는 것과 Decoder가 정보를 잘 읽는 것은 별개의 문제입니다. Survival Map 기반의 보완 전략은 한계가 명확하며, Decoder-Guided 방식(Phase 2B)으로의 전환을 고려해야 합니다.
+본 연구에서는 임의의 $r$ 임계값(Threshold) 대신, 각 샘플 단위로 도출된 상관계수의 **평균과 신뢰구간(Confidence Interval)**을 통해 전체적인 경향성을 파악합니다. 수치가 높을수록 Survival Map의 프록시 타당성이 높음을 의미합니다.
 
 ### 2. 마스킹 실험 결과 (Causal Verification)
 상관 분석만으로는 인과관계를 단정할 수 없으므로, 실제 오디오에서 특정 영역의 잔차(residual)만 남기고 나머지는 제거했을 때의 BER(Bit Error Rate) 성능을 측정합니다.
@@ -35,9 +34,10 @@ python phase1_attribution.py --dataset_type librispeech --split test
 * **High-Gradient (Top 20%)**: Decoder Gradient Map 기준 상위 20% 잔차만 남긴 상태.
 * **Random 20%**: 무작위 20% 잔차만 남긴 상태.
 
-**[해석 기준]**
-* 만약 `High-Survival`의 ACC가 `Random`보다 유의미하게 높다면, Survival Map은 가치가 있습니다.
-* 만약 `High-Gradient`의 ACC가 `High-Survival`보다 월등히 높다면, 향후 Gate 설계 시 Gradient Map을 사용하는 것이 훨씬 강력한 효과를 발휘할 것임을 증명합니다.
+**[해석 기준 및 분기 결정]**
+* 마스킹 시 OOD(Out-of-Distribution) 문제를 피하기 위해 **Soft Masking과 Local Energy Noise Filling** 기법이 적용됩니다.
+* **Paired t-test**: `High-Survival`과 `Low-Survival`의 평균 BER 차이에 대해 통계적 유의성(p-value < 0.05)을 검증합니다.
+* 유의미한 차이가 확인되면, Survival Map이 실제 에러율 방어에 인과적으로 기여함이 증명된 것이므로 **Phase 2 (Survival Gate 학습)** 로 진입할 타당성을 확보하게 됩니다.
 
 ### 3. 시각화 결과 (Visualization)
 * `results/phase1_map_comparison.png` 경로에 스펙트로그램 오버레이 이미지가 저장됩니다.

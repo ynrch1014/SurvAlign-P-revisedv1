@@ -36,8 +36,8 @@ SurvAlign-P의 가장 핵심적인 질문은 다음과 같습니다:
 본 연구는 통계적 원인 분석(Phase 1)과 실제 인공지능 최적화(Phase 2)를 엄격하게 분리하여 진행합니다.
 
 ### Phase 1 (Attribution Analysis)
-- **목표**: Survival Map과 Gradient Map 간의 상관관계(Pearson, Spearman) 및 영역 교집합(Top-20% IoU)을 정량적으로 측정합니다.
-- **인과 검증**: 맵의 상위 20% 영역만을 남기는 **이진 마스킹(Binary T/F Masking)** 절제 연구(Ablation)를 수행하여, 해당 영역이 실제 에러율(BER) 방어에 결정적인 인과적 기여를 하는지 직관적으로 증명합니다.
+- **목표**: Survival Map과 Gradient Map 간의 샘플 단위 상관관계(Pearson, Spearman 평균 및 신뢰구간) 및 영역 교집합(Top-20% IoU)을 정량적으로 측정합니다.
+- **인과 검증**: 맵의 상위 20% 영역만을 남기는 **절제 연구(Ablation)**를 수행하되, 아티팩트 방지를 위해 **Soft Masking 및 Local Energy Noise Filling**을 적용합니다. 마스킹 전/후의 BER 변화량에 대해 **Paired t-test (p-value < 0.05)**를 수행하여, 해당 영역이 실제 에러율 방어에 결정적인 인과적 기여를 하는지 통계적으로 증명합니다.
 
 ### Phase 2 (Survival Gate Training)
 - **목표**: Phase 1의 통계적 발견을 바탕으로, 실제 잔차 에너지를 최적화하는 가벼운 AI 모듈(`Survival Gate`)을 학습합니다.
@@ -107,7 +107,8 @@ python phase1_attribution.py --dataset_type vctk --batch_size 4
 ```
 
 ### Phase 2: Survival Gate 본학습 및 평가
-5가지 논문용 실험 모드를 지원합니다: `baseline`, `uniform`, `random_gate`, `proposed_gate (survival)`, `proposed_gate (gradient)`
+5가지 논문용 실험 모드를 지원합니다: `baseline`, `uniform`, `random_gate`, `energy_gate`, `proposed_gate`
+(※ `energy_gate`는 단순 음압 기반 가중치로, 제안 모델의 우수성을 입증하기 위한 핵심 대조군입니다.)
 
 **✅ 데이터셋 분할 및 활용 규정 (Train / Test Split)**
 본 프로젝트는 리뷰어의 공격을 완벽히 방어하기 위해 **세 가지 평가 트랙**을 동시 지원합니다.
