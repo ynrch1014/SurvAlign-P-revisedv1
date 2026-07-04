@@ -1,0 +1,9 @@
+numpy
+scipy
+matplotlib
+tqdm
+soundfile
+torchaudio
+scikit-learn
+pesq
+pystoi

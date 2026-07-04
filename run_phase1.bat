@@ -1,4 +1,14 @@
 @echo off
-echo Running Phase 1 Attribution Analysis (Full Test Set)...
-python phase1_attribution.py --dataset_name train-clean-100 --split test
+setlocal
+python phase1_attribution.py ^
+  --dataset_type librispeech ^
+  --dataset_name train-clean-100 ^
+  --split test ^
+  --survival_attacks noise,lowpass,resample,reconstruct_nq6,spectral_proxy ^
+  --utility_attacks reconstruct_nq6,strong_speechtokenizer ^
+  --eval_attacks clean,bandpass,ffmpeg_mp3 ^
+  --strict_heldout ^
+  --energy_modes natural,equal ^
+  --random_repeats 20
+if errorlevel 1 exit /b 1
 pause

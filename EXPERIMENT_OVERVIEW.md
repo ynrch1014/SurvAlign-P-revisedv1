@@ -1,58 +1,171 @@
-# SurvAlign-P 실험 및 평가 구조 총정리 (Experiment Overview)
+# SurvAlign-P Experiment Overview
 
-본 문서는 논문 작성 및 방어를 위해 설계된 SurvAlign-P의 전체 실험 구조, 대조군(Ablation), 그리고 왜곡(Distortion) 세트를 한눈에 파악할 수 있도록 정리한 가이드입니다.
+## Research Question
 
----
+Feature-Aligned (AlignMark) achieves strong average bit accuracy, but specific reconstruction
+conditions cause non-trivial **Exact-message failures and Attribution FAR**. This project tests:
 
-## 1. 전체 실험 파이프라인 (18개 시나리오)
-
-실험은 3개의 데이터셋과 6개의 학습/평가 모드의 조합으로 이루어지며, `run_all_experiments.bat`을 통해 **총 18개의 독립적인 훈련 및 평가 사이클**이 일괄 수행됩니다.
-
-### 🎧 평가 대상 데이터셋 (3종)
-다양한 음성 도메인에서의 범용성을 입증하기 위해 아래 3가지를 사용합니다.
-1. **LibriSpeech (`train-clean-100`)**: 다화자 오디오북 낭독 (표준 벤치마크)
-2. **VCTK**: 고품질, 다양한 억양(사투리 등) 및 짧은 발화 환경 (강건성 검증)
-3. **LJSpeech**: 단일 화자(여성) 내레이션 환경 (단일 도메인 검증)
-
-### 🤖 학습 및 평가 모드 (6종)
-각 데이터셋별로 아래 6가지 조건(Ablation)을 통과시키며 성능을 철저히 비교합니다.
-1. **`baseline`**: 아무 조작도 가하지 않은 순정 AlignMark 워터마크
-2. **`uniform`**: 워터마크의 모든 스펙트로그램 픽셀 에너지를 일괄 증폭
-3. **`random_gate`**: 무작위 위치에 증폭 가중치를 준 상태 (가이드 맵의 '공간적 위치 정보' 자체의 가치 입증)
-4. **`energy_gate` [신규 방어 논리]**: 디코더의 지식 없이 오직 소리의 크기(음압, Magnitude)에만 비례해 증폭시키는 상태. 제안 모델이 무지성으로 소리를 키운 것이 아님을 입증하는 가장 강력한 대조군입니다.
-5. **`proposed_gate (survival)`**: 물리적 생존율(Survival Map) 기반 가이드 모델 (핵심 제안 기법)
-6. **`proposed_gate (gradient)`**: 디코더 역전파(Gradient Map) 기반 가이드 모델
+> At a **fixed L2 residual-energy budget**, can limited T-F redistribution toward a
+> physically-surviving subspace recover those failures without degrading perceptual quality?
 
 ---
 
-## 2. 평가 단계(Test) 측정 지표
+## Scope and Honest Limitations
 
-학습이 끝나면(혹은 `test_all_experiments.bat` 실행 시), Test 분할 데이터셋(학습 때 본 적 없는 격리된 화자)에 대해 아래 지표들을 평가합니다. 모든 결과는 `results/phase2_results.csv`에 자동으로 누적됩니다.
+1. **"Decoder-free" applies only to the Survival Map**, not to the Gate training.
+   The Gate is trained with the frozen AlignMark decoder's CE loss.
+   Only `analytic_survival` mode is truly decoder-free.
 
-### 🎙️ 오디오 지각 품질 (Fidelity Metrics)
-워터마크 주입 및 게이트 조율로 인한 음질 훼손도를 다각도로 채점합니다.
-*   **PESQ**: 사람의 주관적 음질 평가 점수를 모사 (높을수록 우수)
-*   **STOI**: 음성 명료도 (높을수록 우수)
-*   **SI-SDR**: 원음 대비 신호 왜곡/노이즈 비율 (높을수록 우수)
-*   **L2-Ratio**: 원본 잔차 에너지 대비 게이팅 후의 잔차 에너지 비율 (Energy Cheating 차단 증명)
+2. **Identity STE**: Codec backward uses `x + (T(x) − x).detach()`, so the Gate
+   cannot learn the codec's actual frequency selectivity through backpropagation.
 
-### 🛡️ 왜곡 강건성 (Robustness / Bit Accuracy)
-게이트를 통과한 워터마크 오디오를 **8가지 시나리오(Clean 포함 7개 왜곡)**에 노출시킨 뒤, 디코더의 워터마크 추출 정확도를 평가합니다.
-1. **Clean**: 왜곡이 없는 깨끗한 상태
-2. **Noise (AWGN)**: 20dB 수준의 백색 소음 주입
-3. **Lowpass**: 4kHz 이상 고주파 대역 차단
-4. **Bandpass**: 전화기 대역폭(300Hz~3.4kHz) 필터링
-5. **Resample**: 다운샘플링 후 복원 (고주파 훼손)
-6. **Reconstruct**: SpeechTokenizer 대용량 딥러닝 코덱 통과
-7. **MP3**: 스펙트럼 마스킹 및 양자화 손실을 수반하는 전통적 MP3 압축
-8. **FACodec Proxy [신규 추가]**: 최신 딥러닝 코덱 환경의 극한 병목(Bottleneck, n_q=2) 압축 및 복원 모사
+3. **Same L2 ≠ same imperceptibility**. PESQ/STOI/SI-SDR must be reported alongside
+   accuracy metrics; equal energy does not guarantee equal perceptual quality.
 
 ---
 
-## 3. Phase 1 (Attribution Analysis) 의의 및 통계적 검증
+## Phase 1 — Controlled Diagnostic (No Training)
 
-Phase 1(`phase1_attribution.py`)은 본격적인 Phase 2 학습 전, Survival Map이 프록시로서 타당한지 검증하는 단계입니다.
+Phase 1 does **not** train anything. It answers: "Which T-F prior best preserves
+decoding information under equal-energy masking?"
 
-1. **상관관계 도출**: 샘플 단위로 Survival Map과 Gradient Map 간의 $r$ 값(Pearson/Spearman) 평균 및 신뢰구간 도출.
-2. **마스킹 실험 (OOD 해결)**: 특정 영역만 남겼을 때 에러율을 얼마나 방어하는지 인과성을 봅니다. 이때 급격한 신호 절단으로 인한 아티팩트(Out-of-Distribution)를 막기 위해 **2D Gaussian Soft Masking**이 적용됩니다.
-3. **통계적 분기 (Branching)**: `High-Survival`과 `Low-Survival` 간의 에러율 차이에 대해 **Paired t-test**를 수행하며, **`p-value < 0.05`**를 만족할 때만 Phase 2 학습으로 넘어가도록 설계하여 학술적 엄밀성을 확보했습니다.
+### Compared Conditions
+| Condition | Description |
+|---|---|
+| High-Survival Top-k | Physical residual-retention × dominance |
+| Low-Survival Top-k | Inverted survival (negative control) |
+| Clean Gradient Saliency | `∂L_dec/∂x_wm` magnitude on clean input |
+| Codec-aware Signed Utility | `−∂L_dec(attacked)/∂α(f,t)` |
+| Residual-Energy Top-k | Loudest residual bins |
+| Speech-Energy Top-k | Loudest clean-speech bins |
+| VAD Top-k | Voice-activity energy bins |
+| Random Top-k (×20) | Repeated random baseline |
+
+### Evaluation Protocol
+- Masking → **actual attack** → decoding (not clean-only decoding)
+- `natural` and `equal` energy conditions separated
+- Wilcoxon signed-rank and sign-flip permutation tests for paired comparisons
+- Metrics: Bit Accuracy, Exact-message Accuracy, Attribution FAR, decoder CE, logit margins
+
+### Key Caution
+- Exploratory and confirmatory datasets **must be separate**
+- If `survival_attacks` and `eval_attacks` share a codec family, label results as "seen-attack"
+
+---
+
+## Phase 2 — Gate Training and Paired Evaluation
+
+### Attack Protocol (Must Be Disjoint)
+
+| Stage | Role | Example |
+|---|---|---|
+| **Survival Map** | Physical prior generation | noise, lowpass, resample, reconstruct_nq6, spectral_proxy |
+| **Train** | Decoder CE optimization | noise, lowpass, resample, reconstruct_nq6 |
+| **Validation** | Checkpoint selection | bandpass, reconstruct_nq8 |
+| **Test (held-out)** | Final evaluation | ffmpeg_mp3, facodec, clearervoice, encodec |
+
+> **Critical**: Default batch scripts use `strong_speechtokenizer` as test, which shares
+> the `speechtokenizer` family with Map attacks. For generalization claims, use
+> `--strict_heldout` with genuinely external codecs.
+
+### Experimental Modes
+
+| Mode | Guide Map | Trainable? | Decoder-free? | Purpose |
+|---|---|---|---|---|
+| `baseline` | — | No | — | AlignMark original (reference) |
+| `uniform_upper` | — | No | — | 1.1× residual amplification upper bound |
+| `analytic_survival` | Survival | No | ✅ **Yes** | Pure physical prior, no optimization |
+| `proposed_gate` + `survival` | Survival | Yes | Map only | **Main proposed method** |
+| `proposed_gate` + `gradient_saliency` | Gradient | Yes | No | Decoder-derived alternative |
+| `proposed_gate` + `codec_utility` | Codec utility | Yes | No | Attack-aware decoder alternative |
+| `constant_gate` | Ones | Yes | — | "Does any gate help?" |
+| `random_gate` | Random | Yes | — | "Is the map information needed?" |
+| `shuffled_survival` | Shuffled Surv. | Yes | — | "Does spatial structure matter?" |
+| `energy_gate` | Speech energy | Yes | — | "Is speech loudness enough?" |
+
+### Critical Comparisons
+
+1. **`analytic_survival` vs `proposed_gate`**: If performance gap is small,
+   the Survival prior alone is sufficient (stronger claim). If large,
+   decoder-supervised training adds value beyond the prior.
+
+2. **`cap` vs `equal` projection**: `equal` mode is the strictly controlled condition.
+   If improvement holds under `equal`, it proves redistribution alone is effective.
+
+3. **Recovery Rate vs Regression Rate**: Recovery = baseline failures rescued.
+   Regression = baseline successes broken. Both must be reported honestly.
+
+---
+
+## Metrics
+
+### Watermark Robustness Metrics
+| Metric | Description |
+|---|---|
+| Bit Accuracy / BER | Per-bit correct rate |
+| **Exact-message Accuracy** | All 16 bits correct (strict) |
+| **Attribution FAR (strict)** | Ties count as failure |
+| Attribution FAR (lenient) | Only strictly closer wrong message |
+| Tie Rate | Correct and nearest-wrong at same Hamming distance |
+| Hamming Attribution Margin | Gap between correct and nearest-wrong distance |
+| Decoder CE | Cross-entropy loss on chunk logits |
+| Min/Mean Logit Margin | Correct-class logit minus best-wrong logit |
+| Logit Entropy | Prediction uncertainty per chunk |
+
+### Paired Comparison Metrics
+| Metric | Description |
+|---|---|
+| **Failure Recovery Rate** | % of baseline failures rescued by Gate |
+| **Regression Rate** | % of baseline successes broken by Gate |
+
+### Perceptual Quality Metrics
+| Metric | Description |
+|---|---|
+| PESQ (wideband) | Perceptual speech quality |
+| STOI | Short-time objective intelligibility |
+| SI-SDR | Scale-invariant signal-to-distortion ratio |
+| L2 Ratio | Energy ratio vs original residual |
+| Peak Amplitude | Maximum absolute sample value |
+| Clipping Ratio | Fraction of samples exceeding ±1.0 |
+
+---
+
+## Distortion / Attack Types
+
+### Internal Differentiable Attacks (Training & Map)
+| Attack | Description | Parameters |
+|---|---|---|
+| `noise` | Additive white Gaussian noise | SNR=20dB |
+| `noise10db` | Stronger AWGN | SNR=10dB |
+| `lowpass` | FIR low-pass filter | cutoff=4kHz |
+| `bandpass` | FIR band-pass filter | 300–3400Hz |
+| `resample` | Down/up-sample | rate=2× |
+| `reconstruct_nq6` | SpeechTokenizer n_q=6 (identity STE) | — |
+| `reconstruct_nq8` | SpeechTokenizer n_q=8 (identity STE) | — |
+| `strong_speechtokenizer` | SpeechTokenizer n_q=2 (aggressive) | — |
+| `spectral_proxy` | Spectral compression proxy (NOT real MP3) | cutoff_ratio=0.7 |
+
+### External Held-out Attacks (Test Only)
+| Attack | Description | Requirement |
+|---|---|---|
+| `ffmpeg_mp3` | Real MP3 encode/decode via ffmpeg | ffmpeg on PATH |
+| `clearervoice` | 10dB noise + neural denoising | External wrapper |
+| `clearervoice_only` | Denoising only (no added noise) | External wrapper |
+| `facodec` | FACodec neural codec | External wrapper |
+| `encodec` | Meta EnCodec | External wrapper |
+| `dac` | Descript Audio Codec | External wrapper |
+| `vocos` | Vocos vocoder | External wrapper |
+| `hifigan` | HiFi-GAN vocoder | External wrapper |
+
+> **Proxy ≠ Real**: `spectral_proxy` is NOT MP3. `strong_speechtokenizer` is NOT FACodec.
+> Always label proxy results accordingly and test with real held-out codecs for generalization claims.
+
+---
+
+## Primary Endpoints (Paper Table)
+
+1. **16-bit Exact-message Accuracy** under held-out attacks (ffmpeg MP3, FACodec, ClearerVoice)
+2. **Attribution FAR (strict)** under the same held-out attacks
+3. **Failure Recovery Rate** and **Regression Rate** (paired with baseline)
+4. **PESQ / STOI / SI-SDR** non-inferiority vs baseline
+5. Decoder CE and minimum logit margin distribution shift

@@ -54,8 +54,7 @@ class WatermarkBase:
 
     def load_model(self, checkpoint_path: str):
         if not os.path.exists(checkpoint_path):
-            print(f"Checkpoint not found: {checkpoint_path}")
-            return
+            raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 
         print(f"Loading checkpoint from {checkpoint_path} ...")
         checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=True)

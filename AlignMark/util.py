@@ -29,16 +29,38 @@ def bits_to_chunks(bits: torch.Tensor, nchunk_size: int) -> List[torch.Tensor]:
     return chunk_values
 
 
-def chunks_to_bits(chunk_values: List[torch.Tensor], nchunk_size: int) -> torch.Tensor:
+def chunks_to_bits(chunk_values, nchunk_size: int) -> torch.Tensor:
+    """Convert chunk class values to bits.
+
+    Accepts either the original list-of-(B,) representation or a tensor of shape
+    ``(B, n_chunks)``. Supporting the tensor form prevents accidentally iterating
+    over the batch dimension when converting ``logits.argmax(dim=-1)``.
+    """
+    if isinstance(chunk_values, torch.Tensor):
+        if chunk_values.dim() == 1:
+            chunk_values = chunk_values.unsqueeze(1)
+        if chunk_values.dim() != 2:
+            raise ValueError(
+                f"Tensor chunk_values must have shape (B,n_chunks), got {chunk_values.shape}"
+            )
+        chunk_values = list(chunk_values.unbind(dim=1))
+    elif not isinstance(chunk_values, (list, tuple)):
+        raise TypeError(
+            "chunk_values must be a tensor (B,n_chunks) or a list/tuple of (B,) tensors"
+        )
+
     bit_chunks = []
     for chunk_val in chunk_values:
+        if chunk_val.dim() != 1:
+            raise ValueError(f"Each chunk tensor must have shape (B,), got {chunk_val.shape}")
         chunk_bits = []
         for bit_idx in range(nchunk_size):
-            bit = (chunk_val >> bit_idx) & 1
+            bit = (chunk_val.long() >> bit_idx) & 1
             chunk_bits.append(bit.unsqueeze(-1))
         bit_chunks.append(torch.cat(chunk_bits, dim=-1))
-    bits = torch.cat(bit_chunks, dim=-1)
-    return bits
+    if not bit_chunks:
+        raise ValueError("chunk_values must contain at least one chunk")
+    return torch.cat(bit_chunks, dim=-1)
 
 
 def tensor_to_base64(audio_tensor, sample_rate=16000):
