@@ -53,28 +53,24 @@ SurvAlign-P는 기존 워터마킹 로직을 처음부터 재학습하지 않고
 
 ```mermaid
 graph TD
-    subgraph Phase 1: Attribution (Diagnostic)
-        A1[Original Audio X] --> B1(Extract 16-bit Msg)
-        B1 --> C1{Attack Channels<br>Noise, MP3, EnCodec}
-        A1 --> D1[Physical Signal Analysis<br>Spectral Energy, VAD]
-        D1 --> E1[Generate Physical 'Survival Map' S<br>Dim: F x T]
-        C1 -.-> F1[Compare with Decoder-dependent<br>Gradient Saliency]
+    subgraph Phase1 ["Phase 1: Attribution (Diagnostic)"]
+        A1["Original Audio X"] --> B1("Extract 16-bit Msg")
+        B1 --> C1{"Attack Channels<br>Noise, MP3, EnCodec"}
+        A1 --> D1["Physical Signal Analysis<br>Spectral Energy, VAD"]
+        D1 --> E1["Generate Physical 'Survival Map' S<br>Dim: F x T"]
+        C1 -.-> F1["Compare with Decoder-dependent<br>Gradient Saliency"]
     end
-
-    subgraph Phase 2: Gate Training & Evaluation
-        F2[AlignMark Residual R_align<br>Dim: F x T] --> G2(Apply Differentiable Gate σ_θ)
+    subgraph Phase2 ["Phase 2: Gate Training & Evaluation"]
+        F2["AlignMark Residual R_align<br>Dim: F x T"] --> G2("Apply Differentiable Gate σ_θ")
         E1 --> G2
-        G2 --> H2[Redistributed Residual R_surv<br>R_surv = σ_θ(S) ⊙ R_align]
+        G2 --> H2["Redistributed Residual R_surv<br>R_surv = σ_θ(S) ⊙ R_align"]
         
-        H2 --> I2{Energy Projection<br>L2 Equalization}
-        I2 --> J2[Watermarked Audio X_w]
+        H2 --> I2{"Energy Projection<br>L2 Equalization"}
+        I2 --> J2["Watermarked Audio X_w"]
         
-        J2 --> K2[Held-out Attacks<br>FACodec, MP3]
-        K2 --> L2[Message Decoding & Metric Eval]
-    end
+        J2 --> K2["Held-out Attacks<br>FACodec, MP3"]
+        K2 --> L2[
 ```
-
----
 
 ## 5. 각 Phase별 학습 내용 및 입출력 차원 명세
 
