@@ -21,7 +21,7 @@ for s in seeds:
         "--dataset_name", dataset_name,
         "--epochs", "5",
         "--projection_mode", "equal",
-        "--train_attacks", "noise,lowpass,resample,reconstruct_nq6",
+        "--train_attacks", "noise,lowpass,resample,bandpass",
         "--validation_attacks", "bandpass,reconstruct_nq8",
         "--test_attacks", "ffmpeg_mp3",
         "--strict_heldout",
