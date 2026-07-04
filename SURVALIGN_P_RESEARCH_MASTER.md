@@ -49,29 +49,32 @@ $N=10^6$ 수준만 되어도 이 확률은 사실상 1(100%)에 수렴하여 무
 
 ## 4. 아키텍처 및 논리적 흐름 (Architecture Flow)
 
-SurvAlign-P는 기존 워터마킹 로직을 처음부터 재학습하지 않고, 후처리(Post-hoc) 단계에서 물리적 에너지를 재분배합니다.
+SurvAlign-P는 기존 워터마킹 로직(AlignMark)을 처음부터 재학습하지 않고, AlignMark가 출력한 워터마크 잔차(Residual)에 후처리(Post-hoc) 단계에서 물리적 에너지를 재분배합니다.
 
 ```mermaid
 graph TD
     subgraph Phase1 ["Phase 1: Attribution (Diagnostic)"]
-        A1["Original Audio X"] --> B1("Extract 16-bit Msg")
+        A1["Original Audio X<br>(Dim: 1 x T_audio)"] --> B1("Extract 16-bit Msg M")
         B1 --> C1{"Attack Channels<br>Noise, MP3, EnCodec"}
         A1 --> D1["Physical Signal Analysis<br>Spectral Energy, VAD"]
-        D1 --> E1["Generate Physical 'Survival Map' S<br>Dim: F x T"]
+        D1 --> E1["Generate Physical 'Survival Map' S<br>(Dim: F x T)"]
         C1 -.-> F1["Compare with Decoder-dependent<br>Gradient Saliency"]
     end
+
     subgraph Phase2 ["Phase 2: Gate Training & Evaluation"]
-        F2["AlignMark Residual R_align<br>Dim: F x T"] --> G2("Apply Differentiable Gate σ_θ")
+        F2["AlignMark Residual R_align<br>(Dim: F x T)"] --> G2("Apply Differentiable Gate σ_θ")
         E1 --> G2
-        G2 --> H2["Redistributed Residual R_surv<br>R_surv = σ_θ(S) ⊙ R_align"]
+        G2 --> H2["Redistributed Residual R_surv<br>R_surv = σ_θ(S) ⊙ R_align<br>(Dim: F x T)"]
         
         H2 --> I2{"Energy Projection<br>L2 Equalization"}
-        I2 --> J2["Watermarked Audio X_w"]
+        I2 --> J2["Watermarked Audio X_w<br>X_w = X + iSTFT(R_surv_proj)<br>(Dim: 1 x T_audio)"]
         
         J2 --> K2["Held-out Attacks<br>FACodec, MP3"]
         K2 --> L2["Message Decoding & Metric Eval"]
     end
 ```
+
+---
 
 ## 5. 각 Phase별 학습 내용 및 입출력 차원 명세
 
