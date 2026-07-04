@@ -238,7 +238,12 @@ graph TD
 *   **스크립트**: `python verify_main_results_significance.py`
 *   **해석**: 내부적으로 `phase2_training.py`를 3개의 시드(Seed: 42, 43, 44)로 각각 반복 학습/평가한 뒤, Baseline과 Proposed 모델 간의 **Paired T-test**를 자동으로 수행합니다. 여기서 도출될 p-value 통계량이 (유의수준 0.05 미만을 달성할 경우) 논문 Table I/II의 핵심을 관통하는 가장 중요한 성과(Main Result)가 됩니다.
 
-### Step 5. 절제 연구 및 도메인 확장 (Ablations & Generalizations)
+### Step 5. 확장 강건성 평가 (Extended Held-out Robustness)
+*   **목적**: 메인 실험(Step 4) 완료 후, 외부 SOTA 신경망 코덱 및 음성 향상 모델(FACodec, ClearerVoice, EnCodec, DAC, Vocos)과 내부 강한 공격(Strong SpeechTokenizer, Spectral Proxy)에 대해 확장 평가를 수행합니다.
+*   **스크립트**: `run_extended_heldout_eval.bat` (내부적으로 `verify_extended_heldout_robustness.py` 호출)
+*   **해석**: 사전에 학습된 다중 시드(42, 43, 44)의 체크포인트를 불러와 추가적인 흑조 공격(Test Attack) 환경에서의 방어력을 자동으로 집계합니다. 이를 통해 제안 방법론의 실전 적용 능력 및 범용적인 강건성을 극대화하여 보여줄 수 있습니다.
+
+### Step 6. 절제 연구 및 도메인 확장 (Ablations & Generalizations)
 *   **목적**: 특정 조건에서의 오버피팅을 반박하고 방법론의 범용성을 입증합니다.
 *   **스크립트**:
     *   python phase2_training.py --map_type random (Random Gate 대조군)
