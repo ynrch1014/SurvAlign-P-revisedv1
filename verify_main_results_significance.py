@@ -1,4 +1,4 @@
-﻿import os
+import os
 import subprocess
 import csv
 from scipy import stats
@@ -32,7 +32,7 @@ for s in seeds:
 
 print("\nAll seeds completed. Gathering results and performing Paired T-test...")
 
-long_path = "results/phase2_results_long.csv"
+long_path = "results/phase2/phase2_results_long.csv"
 
 run_ids = set([f"stat_sig_seed_{s}" for s in seeds])
 
@@ -75,7 +75,7 @@ all_m_exact = []
 
 for s in seeds:
     stem = f"stat_sig_seed_{s}_librispeech_{mode}_{map_type}"
-    sample_path = f"results/{stem}_samples.csv"
+    sample_path = f"results/phase2/{stem}_samples.csv"
     if os.path.exists(sample_path):
         with open(sample_path, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
