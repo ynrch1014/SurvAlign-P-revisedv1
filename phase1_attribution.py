@@ -57,10 +57,11 @@ def parse_csv_list(value: str) -> List[str]:
 
 def compute_decoder_gradient_map(alignmark, wav_wm, target_msg):
     """Legacy clean-input decoder gradient-magnitude saliency map."""
-    wav_var = wav_wm.detach().clone().requires_grad_(True)
-    _, chunk_logits = alignmark.decode_logits_with_grad(wav_var)
-    loss = compute_chunk_ce_loss(chunk_logits, target_msg)
-    gradient = torch.autograd.grad(loss, wav_var, retain_graph=False, create_graph=False)[0]
+    with torch.backends.cudnn.flags(enabled=False):
+        wav_var = wav_wm.detach().clone().requires_grad_(True)
+        _, chunk_logits = alignmark.decode_logits_with_grad(wav_var)
+        loss = compute_chunk_ce_loss(chunk_logits, target_msg)
+        gradient = torch.autograd.grad(loss, wav_var, retain_graph=False, create_graph=False)[0]
     gradient_spec = stft_audio(gradient.squeeze(1), n_fft=256, hop_length=64)
     return minmax_per_sample(torch.abs(gradient_spec))
 
@@ -140,12 +141,13 @@ def compute_decoder_utility_map(
     scaled_residual = istft_audio(scaled, length=wav_2d.shape[-1], n_fft=256, hop_length=64)
     candidate = (wav_2d + scaled_residual).unsqueeze(1)
     loss = torch.zeros((), device=wav.device)
-    for attack_index, attack_name in enumerate(attack_names):
-        attacked = _apply_internal_attack(candidate, attack_name, distorter, base_seed + attack_index)
-        _, logits = alignmark.decode_logits_with_grad(attacked)
-        loss = loss + compute_chunk_ce_loss(logits, target_msg)
-    loss = loss / len(attack_names)
-    gradient = torch.autograd.grad(loss, alpha, retain_graph=False, create_graph=False)[0]
+    with torch.backends.cudnn.flags(enabled=False):
+        for attack_index, attack_name in enumerate(attack_names):
+            attacked = _apply_internal_attack(candidate, attack_name, distorter, base_seed + attack_index)
+            _, logits = alignmark.decode_logits_with_grad(attacked)
+            loss = loss + compute_chunk_ce_loss(logits, target_msg)
+        loss = loss / len(attack_names)
+        gradient = torch.autograd.grad(loss, alpha, retain_graph=False, create_graph=False)[0]
     utility = -gradient
     # Preserve sign before z-normalization; positive values mean increasing the residual helps locally.
     mean = utility.reshape(utility.shape[0], -1).mean(dim=1).view(-1, 1, 1)

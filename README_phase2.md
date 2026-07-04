@@ -2,9 +2,10 @@
 
 ## Purpose
 
-Phase 2는 Feature-Aligned의 평균 ACC를 미세하게 올리는 것이 아니라,
-강한 복원 모델에서 발생하는 **Exact-message failure와 Attribution FAR**를
-지각 품질 저하 없이 회복하는 데 초점을 둡니다.
+Phase 2의 궁극적 목표는 대규모 포렌식 추적(Planetary-scale forensic)에서 필수적인 **Exact-message (16-bit 전원 일치) 복원율**을 극대화하는 것입니다.
+
+> **Why SurvAlign-P?**  
+> 페이로드 용량을 절반으로 깎아먹는 오류 정정 코드(ECC)에 의존하거나, 기존 베이스라인 모델을 재학습하는 비용(Retraining)을 지불할 필요가 없습니다. Phase 2는 코덱의 Burst Error 특성을 역이용하는 물리적 `Survival Map`을 바탕으로, **비가청성(에너지 총량)을 그대로 유지(Equal Energy)하면서 워터마크를 스스로 안전지대로 대피시키는 지능형 Post-hoc Gate 네트워크**를 학습합니다.
 
 ## Attack Protocol (Must Be Disjoint)
 

@@ -8,12 +8,26 @@ SurvAlign-P는 Feature-Aligned(AlignMark)가 생성한 워터마크 잔차를 **
 > **Gate 자체**는 고정된 AlignMark decoder의 CE loss로 학습됩니다 — decoder-free가 아닙니다.
 > 최종 성능은 Map/Train 공격과 **완전히 분리된 held-out 공격**(ffmpeg MP3, FACodec, ClearerVoice 등)에서 평가해야 합니다.
 
-## 1. Pipeline 구성
+## 1. Core Contributions & Defense Strategy
+
+SurvAlign-P addresses the critical vulnerabilities of existing audio watermarking models in practical, large-scale forensic applications. Our methodology is built upon three core pillars:
+
+1. **Planetary-Scale Robustness (The Necessity of Exact-Match):** 
+   While existing studies report high bit-wise accuracy (e.g., 95-99%), this translates to a low probability of exact 16-bit message recovery ($0.95^{16} \approx 44\%$). Relying on Nearest-Neighbor (FAR) metrics is computationally infeasible and prone to catastrophic collision rates in planetary-scale databases. SurvAlign-P fundamentally restores the exact-match recovery rate without retraining the base model.
+   
+2. **Physical-Layer Adaptation over Capacity-Reducing ECC:**
+   Error Correction Codes (ECC) can mitigate bit errors but strictly reduce the effective payload capacity (e.g., halving the payload from 16 bits to 8 bits). Instead of sacrificing capacity, SurvAlign-P operates at the physical layer, dynamically redistributing energy to inherently robust Time-Frequency (T-F) bins while strictly maintaining the perceptual energy budget.
+
+3. **Empirical Validation of Correlated Burst Errors:**
+   Neural audio codecs (e.g., EnCodec) do not cause independent and identically distributed (i.i.d.) bit errors; they induce clustered (burst) errors in specific T-F regions. Our empirical analysis (`burst_error_analysis.py`) demonstrates that our physical `Survival Map` accurately predicts these localized destruction patterns, far outperforming conventional decoder-derived gradient saliency.
+
+## 2. Pipeline 구성
 
 | File | Role |
 |---|---|
 | `phase1_attribution.py` | 에너지·공격 통제 Phase 1 진단 (학습 없음) |
 | `phase2_training.py` | Validation 기반 Gate 학습 및 paired 평가 |
+| `burst_error_analysis.py` | 코덱 Burst Error 파괴 대역 및 Survival Map 실측 분석 |
 | `survalign_p.py` | 공통 데이터셋·왜곡·AlignMark 래퍼 + legacy 실험 |
 | `experiment_utils.py` | 재현성, L2 투영, Exact-message/FAR 계산 |
 | `external_attacks.py` | 실제 ffmpeg MP3 및 외부 코덱 실행 어댑터 |

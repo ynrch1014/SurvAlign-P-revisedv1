@@ -2,10 +2,10 @@
 
 ## Purpose
 
-Phase 1은 **학습을 하지 않습니다**. 다음 질문을 공정하게 검증합니다:
+Phase 1은 **학습을 하지 않습니다**. 본 진단 평가는 다음 가설을 공정하게 수학적/실증적으로 검증합니다:
 
-> 동일한 잔차 에너지와 실제 공격 조건에서, Survival 기반 T-F 선택이 residual-energy,
-> random, decoder saliency 및 codec-aware utility보다 복호 정보를 더 잘 보존하는가?
+> **Hypothesis:** 신경망 기반 오디오 코덱(Neural Codecs)의 압축 손실은 무작위 독립 변수(i.i.d)가 아니라 특정 시간-주파수 대역에 군집화(Clustered Burst Error)되어 발생합니다.
+> **Verification:** 동일한 에너지 예산 하에서, 코덱의 파괴 패턴을 예측하는 우리의 물리적 `Survival Map`이 기존 딥러닝 디코더가 역전파로 계산한 `Gradient Saliency`나 단순 `Residual-energy`보다 실질적인 복호 정보 보존 능력이 압도적으로 우수함을 증명합니다.
 
 ## Compared Conditions
 
