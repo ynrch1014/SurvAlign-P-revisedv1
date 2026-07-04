@@ -124,44 +124,54 @@ def main():
     oddsratio, pvalue_fisher = fisher_exact([[success_a, fail_a], [success_b, fail_b]])
     print(f"Fisher's Exact Test p-value: {pvalue_fisher:.4f}")
     
-    # 2. TOST (Two One-Sided Tests) for Equivalence
-    # We define a practical equivalence margin (e.g., 15 percentage points).
-    # TOST tests H0: |p_a - p_b| >= margin vs H1: |p_a - p_b| < margin
+    # 2. Exact TOST (Two One-Sided Tests) for Equivalence
+    # Using scipy's exact binomial test to avoid normal approximation inaccuracies at N=100.
+    # We test two separate null hypotheses:
+    # H01: p_b <= p_a - margin
+    # H02: p_b >= p_a + margin
     margin = 0.15
-    from scipy.stats import norm
+    from scipy.stats import binomtest
     
-    # Unpooled standard error for TOST
-    se_unpooled = np.sqrt(p_a * (1 - p_a) / n_samples + p_b * (1 - p_b) / n_samples)
-    if se_unpooled == 0:
-        se_unpooled = 1e-10
+    # Expected number of successes under the bounds
+    expected_lower = max(0, min(n_samples, n_samples * (p_a - margin)))
+    expected_upper = max(0, min(n_samples, n_samples * (p_a + margin)))
     
-    z1 = ((p_a - p_b) - (-margin)) / se_unpooled
-    z2 = ((p_a - p_b) - margin) / se_unpooled
-    p1 = 1 - norm.cdf(z1)
-    p2 = norm.cdf(z2)
-    p_tost = max(p1, p2)
+    # Test H01: Is the observed success_b significantly greater than the lower bound?
+    # alternative="greater" tests if true proportion > (p_a - margin)
+    test1 = binomtest(success_b, n_samples, min(1.0, max(0.0, p_a - margin)), alternative='greater')
+    p1_exact = test1.pvalue
     
-    print(f"TOST Equivalence p-value (margin ±{margin*100:.1f}%p): {p_tost:.4f}")
+    # Test H02: Is the observed success_b significantly less than the upper bound?
+    # alternative="less" tests if true proportion < (p_a + margin)
+    test2 = binomtest(success_b, n_samples, min(1.0, max(0.0, p_a + margin)), alternative='less')
+    p2_exact = test2.pvalue
+    
+    p_tost_exact = max(p1_exact, p2_exact)
+    
+    print(f"Exact Binomial TOST p-value (margin ±{margin*100:.1f}%p): {p_tost_exact:.4f}")
     
     # 3. Post-Hoc Power Analysis
-    # How much power did we have to detect a 10%p difference?
+    # How much power did we have to detect a 15%p difference?
     # Using simple normal approximation power formula for two proportions.
     alpha = 0.05
+    from scipy.stats import norm
     z_alpha = norm.ppf(1 - alpha/2)
     p_pool = (success_a + success_b) / (2 * n_samples)
     se_pool = np.sqrt(p_pool * (1 - p_pool) * (2 / n_samples))
+    se_unpooled = np.sqrt(p_a * (1 - p_a) / n_samples + p_b * (1 - p_b) / n_samples)
+    if se_unpooled == 0:
+        se_unpooled = 1e-10
     if se_pool == 0:
         power = 0.0
     else:
-        # Expected difference under H1 is margin (0.10)
-        # Assuming the true difference is 0.10, what is the power?
+        # Expected difference under H1 is margin
         z_power = (margin - z_alpha * se_pool) / se_unpooled
         power = norm.cdf(z_power)
     
     print(f"Post-Hoc Power (to detect {margin*100:.1f}%p diff at N={n_samples}): {power*100:.1f}%")
     print("")
     
-    if p_tost < 0.05:
+    if p_tost_exact < 0.05:
         print("SUCCESS (EQUIVALENCE): We reject the null hypothesis of non-equivalence (p_tost < 0.05).")
         print(f"   The success rates are statistically equivalent within a ±{margin*100:.0f}%p margin.")
         print("   This provides evidence of value-independence in the EnCodec neural channel.")
