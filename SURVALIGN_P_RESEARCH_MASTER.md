@@ -132,7 +132,7 @@ graph TD
 > 단일 실행(Single run)으로 인한 우연성(random seed effect)을 배제하기 위해, 3개의 독립된 Global Seed로 전체 파이프라인(학습 및 평가)을 반복 수행한 결과를 보고합니다.
 
 *   **반복 실험 설정**: 3개의 무작위 초기화 시드에 대해 `train-clean-100` 데이터셋에서 Gate 학습을 수행한 뒤, 평가 데이터셋을 대상으로 `ffmpeg_mp3` 등 주요 Held-out 공격을 가하여 정확도를 측정했습니다.
-*   **통계적 유의성 (Paired T-Test)**: Baseline(기존 AlignMark)과 Proposed(SurvAlign-P) 간의 Exact-Match 향상 폭에 대해 대응표본 T-검정을 수행한 결과, 유의수준 0.05 하에서 **통계적으로 매우 유의미한 성능 향상**임이 증명되었습니다. (구체적인 p-value 및 평균 $\pm$ 표준편차는 백그라운드 실험 종료 후 업데이트 예정)
+  *   **통계적 유의성 검정 (Paired T-Test) [PENDING]**: Baseline(기존 AlignMark)과 Proposed(SurvAlign-P) 간의 Exact-Match 향상 폭에 대해 3-seed 표본으로 T-검정을 수행하는 스크립트(`verify_main_results_significance.py`)가 완벽히 준비되어 있습니다. (현재 로컬 환경의 연산 자원 한계로 실제 3-seed 학습은 유보 상태이며, 추후 GPU 서버에서 스크립트 실행 후 실제 p-value 및 평균 $\pm$ 표준오차를 기입해야 합니다.)
 
 ### 8.2. 지각적 품질 (Subjective Quality & MOS)
 오디오 워터마킹에서 객관적 지표(PESQ, STOI 등)는 사람의 청각 인지를 완벽히 대변할 수 없습니다.
@@ -245,5 +245,3 @@ graph TD
     *   python phase2_training.py --map_type uniform (Uniform Allocation 대조군)
     *   (추가 데이터셋 인자 --dataset_type vctk 등을 통한 확장 실험 수행)
 *   **해석**: "무작정 에너지를 분배한 것(Random/Uniform)보다 물리적 지식을 활용한 것(Survival)이 압도적으로 우수하다"는 결론을 내리며 프레임워크의 학술적 타당성을 종결짓습니다.
-
-<!-- Finalized empirical verification at N=300 -->
