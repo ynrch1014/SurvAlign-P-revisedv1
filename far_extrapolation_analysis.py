@@ -38,7 +38,7 @@ def plot_far_extrapolation(payload_bits=64, save_path="results/far_extrapolation
     if payload_bits == 64:
         tolerances = [0, 3, 6, 16]
         labels = ["Exact Match (0% BER)", "NN (5% BER Tol., d=3)", "NN (10% BER Tol., d=6)", "NN (25% BER Tol., d=16)"]
-        title = "Planetary-Scale FAR Extrapolation (64-bit Payload)"
+        title = "Theoretical Projection: Planetary-Scale FAR (64-bit Payload)\n*Illustrative only. Current empirical model relies on 16-bit capacity.*"
     else:
         tolerances = [0, 1, 2, 4]
         labels = ["Exact Match (0% BER)", "NN (~6% BER Tol., d=1)", "NN (~12% BER Tol., d=2)", "NN (25% BER Tol., d=4)"]
