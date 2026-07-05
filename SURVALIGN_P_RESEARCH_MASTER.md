@@ -173,7 +173,7 @@ graph TD
    * 메인 실험에 사용된 **LibriSpeech (`train-clean-100`)**는 낭독체 음성 위주의 대규모 데이터셋입니다. 
    * 본 연구는 이에 그치지 않고, 다양한 억양과 화자 특성을 포함하는 **VCTK**, 그리고 단일 화자의 장문 발화에 집중된 **LJSpeech** 데이터셋으로의 확장을 실험 설계에 포함하여, 제안하는 물리적 에너지 재배치 구조가 특정 도메인에 종속되지 않고 범용적으로 작용함을 증명하는 로드맵을 구축했습니다.
 2. **핵심 절제 연구 (Ablation Studies)**
-   * **Survival Map의 당위성 증명**: 제안하는 물리적 사전지식(Survival Map) 기반의 Gate의 우수성을 입증하기 위해, 필수 대조군으로서 **1) Random Gate** (주파수 대역에 무작위로 에너지를 가중) 및 **2) Uniform Allocation** (에너지를 모든 대역에 획일적으로 재분배)를 설정하여 동일한 에너지(왜곡) 하에서의 Exact-Match 생존율 차이를 분석합니다. (구현 완료: GPU 서버 환경에서 `--map_type random`, `--map_type uniform` 인자로 다중 시드 평가 진행 예정)
+   * **Survival Map의 당위성 증명**: 제안하는 물리적 사전지식(Survival Map) 기반의 Gate의 우수성을 입증하기 위해, 필수 대조군으로서 **1) Random Gate** (주파수 대역에 무작위로 에너지를 가중) 및 **2) Uniform Allocation** (에너지를 모든 대역에 획일적으로 재분배)를 설정하여 동일한 에너지(왜곡) 하에서의 Exact-Match 생존율 차이를 분석합니다. (구현 완료: GPU 서버 환경에서 `--mode random_gate`, `--mode constant_gate` 인자로 다중 시드 평가 진행 예정)
    * **Energy Projection 제어방식 (Equal vs Cap)**: L2 정규화 시, 베이스라인과 완벽히 동일한 에너지를 강제하는 `Equal` 모드와, 에너지 상한선만 제한하여 왜곡을 최소화하는 `Cap` 모드의 비교 실험을 통해 강건성과 음질(Distortion) 간의 Trade-off를 심층 분석합니다.
 3. **공격 시나리오의 다차원성 (Diverse Attack Protocols)**
    * 백색 잡음(Noise), 필터링(Low/Band-pass), 리샘플링과 같은 **선형(Linear) 신호 왜곡**과 MP3 압축 및 최신 뉴럴 코덱(실제 EnCodec, FACodec)과 같은 **비선형(Non-linear) 양자화 파괴**를 평가합니다.
@@ -302,8 +302,8 @@ graph TD
 4. **[대기/GPU] 절제 연구 (Ablation Studies) - Random/Uniform 대조군 (7.1절 대응)**
    *   **목적**: 물리적 사전지식(Survival Map)의 우수성을 단순 재배치(Random/Uniform)와 비교.
    *   **스크립트**:
-       *   `python verify_main_results_significance.py --map_type random --output_json results/ablation_random.json`
-       *   `python verify_main_results_significance.py --map_type uniform --output_json results/ablation_uniform.json`
+       *   `python verify_main_results_significance.py --mode random_gate`
+       *   `python verify_main_results_significance.py --mode constant_gate`
 5. **[대기/GPU] 확장 강건성 평가 (Appendix C 대응)**
    *   **목적**: 메인 평가 후, 저장된 모델을 바탕으로 외부 최신 코덱(FACodec 등)에 대한 일반화 방어력 검증.
    *   **스크립트**: `run_extended_heldout_eval.bat` (내부적으로 `verify_extended_heldout_robustness.py` 호출)
