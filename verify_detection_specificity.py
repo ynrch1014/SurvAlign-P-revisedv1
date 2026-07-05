@@ -83,8 +83,11 @@ def main():
 
     clean_margins = []
     clean_neg_entropies = []
+    clean_frame_scores = []
+    
     watermarked_margins = []
     watermarked_neg_entropies = []
+    watermarked_frame_scores = []
 
     print("Running inference...")
     sample_idx = 0
@@ -101,33 +104,40 @@ def main():
             sample_idx += bsz
 
             # 1. Clean Audio Path
-            _, chunk_logits_clean, _ = manager.decode(wav)
+            frame_logits_clean, chunk_logits_clean, _ = manager.decode(wav)
             margin_clean, neg_ent_clean = compute_confidence(chunk_logits_clean)
+            frame_score_clean = frame_logits_clean.mean(dim=1)
             
             clean_margins.extend(margin_clean.cpu().numpy().tolist())
             clean_neg_entropies.extend(neg_ent_clean.cpu().numpy().tolist())
+            clean_frame_scores.extend(frame_score_clean.cpu().numpy().tolist())
             
             # 2. Watermarked Audio Path
             wav_wm, _ = manager.embed(wav, msg_tensor)
-            _, chunk_logits_wm, _ = manager.decode(wav_wm)
+            frame_logits_wm, chunk_logits_wm, _ = manager.decode(wav_wm)
             margin_wm, neg_ent_wm = compute_confidence(chunk_logits_wm)
+            frame_score_wm = frame_logits_wm.mean(dim=1)
             
             watermarked_margins.extend(margin_wm.cpu().numpy().tolist())
             watermarked_neg_entropies.extend(neg_ent_wm.cpu().numpy().tolist())
+            watermarked_frame_scores.extend(frame_score_wm.cpu().numpy().tolist())
 
     y_true = np.array([0] * num_samples + [1] * num_samples)
     y_margin = np.array(clean_margins + watermarked_margins)
     y_neg_ent = np.array(clean_neg_entropies + watermarked_neg_entropies)
+    y_frame = np.array(clean_frame_scores + watermarked_frame_scores)
 
     # 1. Calculate AUC
     auc_margin = roc_auc_score(y_true, y_margin)
     auc_neg_ent = roc_auc_score(y_true, y_neg_ent)
+    auc_frame = roc_auc_score(y_true, y_frame)
     
     print("\n" + "="*50)
     print("DETECTION SPECIFICITY RESULTS")
     print("="*50)
     print(f"ROC-AUC (Logit Margin): {auc_margin:.4f}")
     print(f"ROC-AUC (-Entropy):     {auc_neg_ent:.4f}")
+    print(f"ROC-AUC (Frame Logits): {auc_frame:.4f}")
     
     target_fprs = [float(f) for f in args.target_fprs.split(",")]
     
@@ -135,8 +145,10 @@ def main():
         "num_samples": num_samples,
         "auc_margin": float(auc_margin),
         "auc_neg_entropy": float(auc_neg_ent),
+        "auc_frame_logits": float(auc_frame),
         "thresholds_margin": {},
-        "thresholds_neg_entropy": {}
+        "thresholds_neg_entropy": {},
+        "thresholds_frame_logits": {}
     }
     
     print("\n--- Operating Thresholds (Logit Margin) ---")
@@ -159,10 +171,16 @@ def main():
             "tpr": float(tpr)
         }
 
-    # Example calculation of Compound FAR
-    # If the standard Union-Bound FAR for N=1,000,000 candidates was 1e-4,
-    # the Compound FAR = Detection FPR * Union-Bound FAR
-    # Since we didn't calculate union-bound here, we just provide the FPRs.
+    print("\n--- Operating Thresholds (Frame Logits) ---")
+    for t_fpr in target_fprs:
+        thresh, tpr, actual_fpr = find_threshold_and_recall(y_true, y_frame, t_fpr)
+        print(f"Target FPR: {t_fpr*100:5.2f}% | Thresh: {thresh:6.2f} | Actual FPR: {actual_fpr*100:5.2f}% | TPR (Recall): {tpr*100:5.2f}%")
+        results["thresholds_frame_logits"][f"fpr_{t_fpr}"] = {
+            "threshold": float(thresh),
+            "actual_fpr": float(actual_fpr),
+            "tpr": float(tpr)
+        }
+
     print("\n--- Compound FAR Logic ---")
     print("Compound FAR = Detection FPR * Conditional Decoding FAR")
     print("Example: If Conditional FAR = 1e-4 and Detection FPR = 0.01 (1%),")
@@ -170,9 +188,10 @@ def main():
     
     os.makedirs("results", exist_ok=True)
     out_path = "results/detection_specificity.json"
-    with open(out_path, "w") as f:
+    with open(out_path, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=4)
-    print(f"\nResults saved to {out_path}")
+        
+    print(f"\nResults saved to {out_path}\n")
 
 if __name__ == "__main__":
     main()
