@@ -761,9 +761,9 @@ def _apply_survival_attack_pair(clean, watermarked, distorter, attack_name, seed
         )
     if attack_name == "resample":
         return distorter(clean, "resample", down_rate=2), distorter(watermarked, "resample", down_rate=2)
-    if attack_name == "reconstruct_nq6":
+    if attack_name == "speechtokenizer_nq6":
         return distorter(clean, "reconstruct", n_q=6), distorter(watermarked, "reconstruct", n_q=6)
-    if attack_name == "reconstruct_nq8":
+    if attack_name == "speechtokenizer_nq8":
         return distorter(clean, "reconstruct", n_q=8), distorter(watermarked, "reconstruct", n_q=8)
     if attack_name == "strong_speechtokenizer":
         return (
@@ -799,7 +799,7 @@ def get_survival_map(
     attacks when making generalization claims.
     """
     if attack_names is None:
-        attack_names = ("noise", "lowpass", "bandpass", "resample", "reconstruct_nq6", "spectral_proxy")
+        attack_names = ("noise", "lowpass", "bandpass", "resample", "speechtokenizer_nq6", "spectral_proxy")
     if not attack_names:
         raise ValueError("At least one survival-map attack is required.")
     with torch.no_grad():

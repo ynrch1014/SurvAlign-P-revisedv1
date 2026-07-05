@@ -79,9 +79,9 @@ def _apply_internal_attack(wav, attack_name, distorter, seed):
         return distorter(wav, "bandpass", low_hz=300, high_hz=3400)
     if attack_name == "resample":
         return distorter(wav, "resample", down_rate=2)
-    if attack_name == "reconstruct_nq6":
+    if attack_name == "speechtokenizer_nq6":
         return distorter(wav, "reconstruct", n_q=6)
-    if attack_name == "reconstruct_nq8":
+    if attack_name == "speechtokenizer_nq8":
         return distorter(wav, "reconstruct", n_q=8)
     if attack_name == "strong_speechtokenizer":
         return distorter(wav, "strong_speechtokenizer", n_q=2)
@@ -99,7 +99,7 @@ def _apply_internal_attack(wav, attack_name, distorter, seed):
 def apply_eval_attack(wav, attack_name, distorter, seed, args):
     if attack_name in {
         "clean", "identity", "noise", "noise10db", "lowpass", "bandpass", "resample",
-        "reconstruct_nq6", "reconstruct_nq8", "strong_speechtokenizer", "spectral_proxy",
+        "speechtokenizer_nq6", "speechtokenizer_nq8", "strong_speechtokenizer", "spectral_proxy",
         "masking", "replacement", "frame_shuffle",
     }:
         return _apply_internal_attack(wav, attack_name, distorter, seed)
@@ -237,8 +237,8 @@ def main():
     parser.add_argument("--smooth_sigma", type=float, default=1.0)
     parser.add_argument("--energy_modes", default="natural,equal")
     parser.add_argument("--equal_energy_target", default="minimum", choices=["minimum", "baseline"])
-    parser.add_argument("--survival_attacks", default="noise,lowpass,resample,reconstruct_nq6,spectral_proxy")
-    parser.add_argument("--utility_attacks", default="reconstruct_nq6,strong_speechtokenizer")
+    parser.add_argument("--survival_attacks", default="noise,lowpass,resample,speechtokenizer_nq6,spectral_proxy")
+    parser.add_argument("--utility_attacks", default="speechtokenizer_nq6,strong_speechtokenizer")
     parser.add_argument("--eval_attacks", default="clean,bandpass,strong_speechtokenizer")
     parser.add_argument("--clearervoice_command", default="")
     parser.add_argument("--facodec_command", default="")

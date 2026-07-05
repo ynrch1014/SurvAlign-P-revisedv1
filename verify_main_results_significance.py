@@ -9,7 +9,7 @@ parser = argparse.ArgumentParser(description="Multi-Seed Evaluation for Statisti
 parser.add_argument("--mode", default="proposed_gate", type=str)
 parser.add_argument("--map_type", default="survival", type=str)
 parser.add_argument("--dataset_name", default="dev-clean", type=str)
-parser.add_argument("--train_attacks", default="noise,lowpass,resample,reconstruct_nq6,spectral_proxy,masking,replacement,frame_shuffle", type=str)
+parser.add_argument("--train_attacks", default="noise,lowpass,resample,speechtokenizer_nq6,spectral_proxy,masking,replacement,frame_shuffle", type=str)
 args = parser.parse_args()
 
 seeds = [42, 43, 44]
@@ -31,7 +31,7 @@ for s in seeds:
         "--epochs", "5",
         "--projection_mode", "equal",
         "--train_attacks", train_attacks,
-        "--validation_attacks", "bandpass,reconstruct_nq8",
+        "--validation_attacks", "bandpass,speechtokenizer_nq8",
         "--test_attacks", "ffmpeg_mp3",
         "--strict_heldout",
         "--seed", str(s),

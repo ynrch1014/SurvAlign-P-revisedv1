@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Burst Error Analysis for EnCodec / Neural Codecs.
+"""Burst Error Analysis for SpeechTokenizer / Neural Codecs.
 
 This script demonstrates empirically that codec attacks cause clustered (burst) 
 errors in specific Time-Frequency (T-F) regions, rather than i.i.d random bit errors.
@@ -67,18 +67,18 @@ def main():
     
     print("2. Generating Decoder Utility Map...")
     utility_map = compute_decoder_utility_map(
-        alignmark, wav, residual, msg, distorter, attack_names=["reconstruct_nq6"]
+        alignmark, wav, residual, msg, distorter, attack_names=["speechtokenizer_nq6"]
     )
     
     print("3. Generating Survival Map...")
     from survalign_p import get_survival_map
     survival_map = get_survival_map(
-        wav, wav_wm, distorter, attack_names=["reconstruct_nq6"], base_seed=args.seed
+        wav, wav_wm, distorter, attack_names=["speechtokenizer_nq6"], base_seed=args.seed
     )
     
-    print("4. Applying Actual Codec Attack (EnCodec / n_q=6)...")
+    print("4. Applying Actual Codec Attack (SpeechTokenizer Proxy / n_q=6)...")
     with torch.no_grad():
-        wav_attacked = _apply_internal_attack(wav_wm, "reconstruct_nq6", distorter, args.seed)
+        wav_attacked = _apply_internal_attack(wav_wm, "speechtokenizer_nq6", distorter, args.seed)
     
     # Calculate Destruction Map (What the codec actually destroyed)
     spec_wm = torch.abs(stft_audio(wav_wm.squeeze(1)))

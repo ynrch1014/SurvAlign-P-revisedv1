@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Verify ECC Value-Independence (Empirical Test)
 
-This script tests whether the neural audio codec channel (EnCodec) violates 
+This script tests whether the neural audio codec channel (SpeechTokenizer-based proxy) violates 
 the "value-independence" assumption of the ECC baseline.
 
 If the neural network's error generation strongly depends on the specific 
@@ -94,7 +94,7 @@ def main():
         wav_wm_a, _ = alignmark.embed(wav, msg_a)
         
         with torch.no_grad():
-            wav_atk_a = _apply_internal_attack(wav_wm_a, "reconstruct_nq6", distorter, seed=42+i)
+            wav_atk_a = _apply_internal_attack(wav_wm_a, "speechtokenizer_nq6", distorter, seed=42+i)
             _, _, dec_a = alignmark.decode(wav_atk_a)
             dist_a = torch.sum(msg_a != dec_a.long()).item()
             hamming_a.append(dist_a)
@@ -106,7 +106,7 @@ def main():
         wav_wm_b, _ = alignmark.embed(wav, msg_b)
         
         with torch.no_grad():
-            wav_atk_b = _apply_internal_attack(wav_wm_b, "reconstruct_nq6", distorter, seed=42+i)
+            wav_atk_b = _apply_internal_attack(wav_wm_b, "speechtokenizer_nq6", distorter, seed=42+i)
             _, _, dec_b = alignmark.decode(wav_atk_b)
             dist_b = torch.sum(msg_b != dec_b.long()).item()
             hamming_b.append(dist_b)
@@ -191,14 +191,14 @@ def main():
     if p_tost < 0.05:
         print("SUCCESS (EQUIVALENCE): We reject the null hypothesis of non-equivalence (p_tost < 0.05).")
         print(f"   The success rates are statistically equivalent within a ±{margin*100:.0f}%p margin.")
-        print("   This provides evidence of value-independence in the EnCodec neural channel.")
+        print("   This provides evidence of value-independence in the SpeechTokenizer-based neural proxy channel.")
     else:
         print("INCONCLUSIVE: We fail to declare equivalence within the margin.")
         print("   The sample size might be too small, or a true difference exists.")
         
     print("\n[Limitations Note]")
     print("1. Power: N=300 provides sufficient statistical power to detect a 15%p difference via TOST.")
-    print("2. Scope: This verification uses a single audio file (example.wav) on the EnCodec channel.")
+    print("2. Scope: This verification uses a single audio file (example.wav) on the SpeechTokenizer-based proxy channel.")
     print("   Value-independence is confirmed for this specific neural codec channel and sample,")
     print("   and practically adopted as an unbiased estimator for our held-out attack evaluations.")
 

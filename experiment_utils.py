@@ -35,7 +35,7 @@ def attack_family(name: str) -> str:
         return "linear_filter"
     if normalized == "resample":
         return "resampling"
-    if normalized in {"reconstruct_nq6", "reconstruct_nq8", "strong_speechtokenizer", "facodec_proxy"}:
+    if normalized in {"speechtokenizer_nq6", "speechtokenizer_nq8", "strong_speechtokenizer", "facodec_proxy"}:
         return "speechtokenizer"
     if normalized in {"spectral_proxy", "mp3"}:
         return "spectral_proxy"
@@ -251,7 +251,7 @@ def compute_attribution_metrics(
     # identical whether or not an ECC is used, giving ECC an unfair theoretical advantage.
     # NOTE 2: While `targets` are uniformly sampled 16-bit integers (not restricted to 256 valid 
     # NR codewords), we empirically verified (see `verify_ecc_value_independence.py`) that the 
-    # EnCodec neural channel exhibits practical value-independence over the message subspace 
+    # SpeechTokenizer-based neural proxy channel exhibits practical value-independence over the message subspace 
     # within a ±15%p equivalence margin (TOST p < 0.05). This is not an absolute proof of independence 
     # for all audio, but within this statistical power (N=100), no value-dependence was found. Therefore, 
     # computing `hamming <= 2` over the uniform space serves as a practically valid, unbiased 

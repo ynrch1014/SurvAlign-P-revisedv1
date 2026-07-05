@@ -110,9 +110,9 @@ def _internal_attack(wav, attack_name, distorter, seed):
         return distorter(wav, "bandpass", low_hz=300, high_hz=3400)
     if attack_name == "resample":
         return distorter(wav, "resample", down_rate=2)
-    if attack_name == "reconstruct_nq6":
+    if attack_name == "speechtokenizer_nq6":
         return distorter(wav, "reconstruct", n_q=6)
-    if attack_name == "reconstruct_nq8":
+    if attack_name == "speechtokenizer_nq8":
         return distorter(wav, "reconstruct", n_q=8)
     if attack_name == "strong_speechtokenizer":
         return distorter(wav, "strong_speechtokenizer", n_q=2)
@@ -130,7 +130,7 @@ def _internal_attack(wav, attack_name, distorter, seed):
 def apply_eval_attack(wav, attack_name, distorter, seed, args):
     internal = {
         "clean", "identity", "noise", "noise10db", "lowpass", "bandpass", "resample",
-        "reconstruct_nq6", "reconstruct_nq8", "strong_speechtokenizer", "spectral_proxy",
+        "speechtokenizer_nq6", "speechtokenizer_nq8", "strong_speechtokenizer", "spectral_proxy",
         "masking", "replacement", "frame_shuffle",
     }
     if attack_name in internal:
@@ -311,8 +311,8 @@ def train_gate(args, device, alignmark, distorter, dataset_train, dataset_val):
     if not args.train_attack_names:
         raise ValueError("At least one training attack is required")
     unsupported = set(args.train_attack_names) - {
-        "noise", "noise10db", "lowpass", "bandpass", "resample", "reconstruct_nq6",
-        "reconstruct_nq8", "strong_speechtokenizer", "spectral_proxy", "clean",
+        "noise", "noise10db", "lowpass", "bandpass", "resample", "speechtokenizer_nq6",
+        "speechtokenizer_nq8", "strong_speechtokenizer", "spectral_proxy", "clean",
     }
     if unsupported:
         raise ValueError(f"Non-differentiable/unknown train attacks: {sorted(unsupported)}")
@@ -749,10 +749,10 @@ def main():
     parser.add_argument("--min_validation_si_sdr_delta", type=float, default=-1e9)
     parser.add_argument("--max_validation_clipping_ratio", type=float, default=1.0)
     parser.add_argument("--survival_quantile", type=float, default=0.25)
-    parser.add_argument("--survival_attacks", default="reconstruct_nq6,reconstruct_nq8,spectral_proxy")
-    parser.add_argument("--utility_attacks", default="reconstruct_nq6,strong_speechtokenizer")
-    parser.add_argument("--train_attacks", default="noise,lowpass,resample,reconstruct_nq6,spectral_proxy,masking,replacement,frame_shuffle")
-    parser.add_argument("--validation_attacks", default="bandpass,reconstruct_nq8")
+    parser.add_argument("--survival_attacks", default="speechtokenizer_nq6,speechtokenizer_nq8,spectral_proxy")
+    parser.add_argument("--utility_attacks", default="speechtokenizer_nq6,strong_speechtokenizer")
+    parser.add_argument("--train_attacks", default="noise,lowpass,resample,speechtokenizer_nq6,spectral_proxy,masking,replacement,frame_shuffle")
+    parser.add_argument("--validation_attacks", default="bandpass,speechtokenizer_nq8")
     parser.add_argument("--test_attacks", default="clean,strong_speechtokenizer")
     parser.add_argument("--clearervoice_command", default="")
     parser.add_argument("--facodec_command", default="")
