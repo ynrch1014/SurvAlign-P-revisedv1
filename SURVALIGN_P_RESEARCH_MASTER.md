@@ -197,8 +197,8 @@ graph TD
     *   **Survival Map 생성용 공격 (Prior)**: `reconstruct_nq6`, `reconstruct_nq8`, `spectral_proxy` (오직 신경망/스펙트럼 코덱의 파괴적 특성만 모델링)
     *   **Train Attacks (Gate 훈련용)**: `noise`, `lowpass`, `resample`, `reconstruct_nq6`, `spectral_proxy`, `masking`, `replacement`, `frame_shuffle` 
         * *목적*: 고전적 노이즈 및 가혹한 시간축 동기화 공격과 더불어, 단일 프록시 코덱(`SpeechTokenizer`)과 스펙트럼 압축(`spectral_proxy`)을 통해 코덱 파괴의 본질적인 "언어"를 학습하게 합니다.
-    *   **Test Attacks (Held-out, 미노출 흑조 공격)**: `ffmpeg_mp3`, `facodec`, `encodec` 등 
-        * *목적*: 훈련 과정에서 보지 못한 새로운 압축/신경망 코덱에 대한 방어력을 평가하여 진정한 "Cross-Codec Generalization" 능력을 증명합니다.
+    *   **Test Attacks (Held-out, 미노출 흑조 공격)**: `ffmpeg_mp3`, `facodec`, `clearervoice`, `encodec` 등 
+        * *목적*: SpeechTokenizer와 동일한 구조(RVQ)를 공유하는 EnCodec에 대한 방어를 넘어, 아키텍처가 완전히 이질적인 음성 분리 기반의 `FACodec`이나 디퓨전/Enhancement 기반의 `ClearerVoice` 등 훈련 과정에서 보지 못한 완전히 새로운 코덱에 대한 방어력을 평가하여 진정한 "Cross-Codec Generalization" 능력을 증명합니다.
 
 #### [부록] 2606.11828(원본 논문)과의 훈련/평가 Distortion 비교표
 
@@ -210,7 +210,7 @@ graph TD
 | **주파수 방어** | `filtering` | `lowpass`, `bandpass` (+ `noise`, `resample`) | 동일 (+ 기본 신호처리 방어 추가) |
 | **압축 방어** | `compression` (MP3 등) | `spectral_proxy` | 미분 불가능한 MP3 대신 스펙트럼 기반 프록시 사용 |
 | **코덱 방어** | `reconstruction` (EnCodec+Vocos) | `reconstruct_nq6` (SpeechTokenizer 기반) | 훈련 루프 내 미분/연산 최적화를 위해 초경량 프록시 사용 |
-| **최종 평가(Test)** | **In-domain Test** (학습 때 사용한 EnCodec을 실전 평가에도 그대로 사용) | **Cross-Codec Held-out Test** (학습 때 본 적 없는 FACodec, EnCodec, MP3로 평가) | 원본 논문은 '맞아본 매'를 테스트했다면, 본 연구는 프록시로만 학습한 뒤 **'처음 보는 매(Cross-Codec)'를 방어해내는 한 차원 높은 일반화 능력**을 증명함. |
+| **최종 평가(Test)** | **In-domain Test** (학습 때 사용한 EnCodec을 실전 평가에도 그대로 사용) | **Cross-Codec Held-out Test** (학습 때 본 적 없는 FACodec, ClearerVoice, MP3로 평가) | 원본 논문은 '맞아본 매(EnCodec)'를 테스트했다면, 본 연구는 프록시로만 학습한 뒤 **'처음 보는 매(아키텍처가 전혀 다른 FACodec, ClearerVoice)'를 방어해내는 한 차원 높은 일반화 능력**을 증명함. |
 
 
 #### C. 타 도메인 확장성 평가 (VCTK, LJSpeech)

@@ -3,11 +3,20 @@ import subprocess
 import csv
 from scipy import stats
 import numpy as np
+import argparse
+
+parser = argparse.ArgumentParser(description="Multi-Seed Evaluation for Statistical Significance")
+parser.add_argument("--mode", default="proposed_gate", type=str)
+parser.add_argument("--map_type", default="survival", type=str)
+parser.add_argument("--dataset_name", default="dev-clean", type=str)
+parser.add_argument("--train_attacks", default="noise,lowpass,resample,reconstruct_nq6,spectral_proxy,masking,replacement,frame_shuffle", type=str)
+args = parser.parse_args()
 
 seeds = [42, 43, 44]
-mode = "proposed_gate"
-map_type = "survival"
-dataset_name = "dev-clean"
+mode = args.mode
+map_type = args.map_type
+dataset_name = args.dataset_name
+train_attacks = args.train_attacks
 
 print("Starting Multi-Seed Evaluation for Statistical Significance...")
 
@@ -21,7 +30,7 @@ for s in seeds:
         "--dataset_name", dataset_name,
         "--epochs", "5",
         "--projection_mode", "equal",
-        "--train_attacks", "noise,lowpass,resample,reconstruct_nq6,spectral_proxy,masking,replacement,frame_shuffle",
+        "--train_attacks", train_attacks,
         "--validation_attacks", "bandpass,reconstruct_nq8",
         "--test_attacks", "ffmpeg_mp3",
         "--strict_heldout",
