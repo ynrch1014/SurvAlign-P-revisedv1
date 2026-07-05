@@ -168,7 +168,8 @@ graph TD
    * **Survival Map의 당위성 증명**: 제안하는 물리적 사전지식(Survival Map) 기반의 Gate의 우수성을 입증하기 위해, 필수 대조군으로서 **1) Random Gate** (주파수 대역에 무작위로 에너지를 가중) 및 **2) Uniform Allocation** (에너지를 모든 대역에 획일적으로 재분배)를 설정하여 동일한 에너지(왜곡) 하에서의 Exact-Match 생존율 차이를 분석합니다. (구현 완료: GPU 서버 환경에서 `--map_type random`, `--map_type uniform` 인자로 다중 시드 평가 진행 예정)
    * **Energy Projection 제어방식 (Equal vs Cap)**: L2 정규화 시, 베이스라인과 완벽히 동일한 에너지를 강제하는 `Equal` 모드와, 에너지 상한선만 제한하여 왜곡을 최소화하는 `Cap` 모드의 비교 실험을 통해 강건성과 음질(Distortion) 간의 Trade-off를 심층 분석합니다.
 3. **공격 시나리오의 다차원성 (Diverse Attack Protocols)**
-   * 백색 잡음(Noise), 필터링(Low/Band-pass), 리샘플링과 같은 **선형(Linear) 신호 왜곡** 뿐만 아니라, MP3 압축 및 최신 뉴럴 코덱(EnCodec, FACodec)과 같은 치명적인 **비선형(Non-linear) 양자화 파괴**를 모두 포함하는 포괄적인 Held-out 평가 프로토콜을 운영하여 프레임워크의 실전 강건성을 철저히 검증하고 있습니다.
+   * 백색 잡음(Noise), 필터링(Low/Band-pass), 리샘플링과 같은 **선형(Linear) 신호 왜곡**과 MP3 압축 및 최신 뉴럴 코덱(EnCodec, FACodec)과 같은 **비선형(Non-linear) 양자화 파괴**를 평가합니다.
+   * **Temporal Defense 입증 (2606.11828 Benchmarking)**: 이에 더해, 오디오 워터마킹에서 가장 가혹한 공격인 시간축(Temporal) 동기화 파괴에 대한 강건성을 증명하기 위해, 기존 논문(AudioSeal 등)에서 사용된 `masking`, `replacement`, `frame_shuffle` 기법을 파이프라인에 추가 구현하여 적용했습니다. 이를 통해 모델의 정렬(Alignment) 능력 및 실전 강건성을 철저히 검증합니다.
 
 ### 8.7. 실험 파라미터 및 재현 조건 상세 (Detailed Experimental Setup)
 논문의 모든 주장은 엄밀하게 통제된 시뮬레이션 조건 하에서 도출되었습니다. 각 실험별 상세 조건은 다음과 같습니다.
@@ -194,7 +195,7 @@ graph TD
 *   **공격 프로토콜 (Disjoint Attack Sets 전략)**:
     정보 누수(Data Leakage)를 원천 차단하고 제로샷(Zero-shot) 수준의 일반화 능력을 입증하기 위해, Survival Map을 생성할 때 쓰인 공격과 Gate 훈련에 쓰인 공격을 완전히 분리(Disjoint)합니다.
     *   **Survival Map 생성용 공격 (Prior)**: `reconstruct_nq6`, `reconstruct_nq8`, `spectral_proxy` (오직 신경망/스펙트럼 코덱의 파괴적 특성만 모델링)
-    *   **Train Attacks (Gate 훈련용)**: `noise`, `lowpass`, `resample`, `bandpass` (Gate는 훈련 중에 신경망 코덱을 전혀 보지 못하고 오직 고전적 신호처리 노이즈만 경험함)
+    *   **Train Attacks (Gate 훈련용)**: `noise`, `lowpass`, `resample`, `bandpass`, `masking`, `replacement`, `frame_shuffle` (Gate는 고전적 신호처리 노이즈 및 가혹한 시간축 동기화 공격을 경험하며 강건성을 학습함)
     *   **Test Attacks (Held-out, 미노출 흑조 공격)**: `ffmpeg_mp3`, `facodec`, `encodec` 등 (훈련 과정에서 보지 못한 새로운 압축/신경망 코덱에 대한 방어력 평가)
 
 #### C. 타 도메인 확장성 평가 (VCTK, LJSpeech)

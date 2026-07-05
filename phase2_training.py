@@ -118,6 +118,12 @@ def _internal_attack(wav, attack_name, distorter, seed):
         return distorter(wav, "strong_speechtokenizer", n_q=2)
     if attack_name == "spectral_proxy":
         return distorter(wav, "spectral_proxy", cutoff_ratio=0.7, seed=seed)
+    if attack_name == "masking":
+        return distorter(wav, "masking", max_ratio=0.1, seed=seed)
+    if attack_name == "replacement":
+        return distorter(wav, "replacement", max_ratio=0.1, snr_db=0.0, seed=seed)
+    if attack_name == "frame_shuffle":
+        return distorter(wav, "frame_shuffle", frame_duration_ms=50, shuffle_ratio=0.2, seed=seed)
     raise ValueError(f"Unknown internal attack: {attack_name}")
 
 
@@ -125,6 +131,7 @@ def apply_eval_attack(wav, attack_name, distorter, seed, args):
     internal = {
         "clean", "identity", "noise", "noise10db", "lowpass", "bandpass", "resample",
         "reconstruct_nq6", "reconstruct_nq8", "strong_speechtokenizer", "spectral_proxy",
+        "masking", "replacement", "frame_shuffle",
     }
     if attack_name in internal:
         return _internal_attack(wav, attack_name, distorter, seed)

@@ -534,10 +534,101 @@ class DifferentiableDistortion(nn.Module):
         wav_rec = istft_audio(reconstructed, length=wav_2d.shape[-1], n_fft=256, hop_length=64)
         return wav_rec if was_2d else wav_rec.unsqueeze(1)
 
+    def apply_masking(self, wav, max_ratio=0.1, seed=None):
+        was_2d = wav.dim() == 2
+        wav_3d = wav.unsqueeze(1) if was_2d else wav
+        B, C, T = wav_3d.shape
+        
+        generator = torch.Generator(device=wav.device)
+        if seed is not None:
+            generator.manual_seed(int(seed))
+        else:
+            generator.seed()
+
+        mask = torch.ones_like(wav_3d)
+        mask_len = int(T * max_ratio)
+        
+        for i in range(B):
+            start = torch.randint(0, max(1, T - mask_len), (1,), generator=generator).item()
+            mask[i, :, start:start + mask_len] = 0.0
+            
+        masked_wav = wav_3d * mask
+        return masked_wav.squeeze(1) if was_2d else masked_wav
+
+    def apply_replacement(self, wav, max_ratio=0.1, snr_db=0.0, seed=None):
+        was_2d = wav.dim() == 2
+        wav_3d = wav.unsqueeze(1) if was_2d else wav
+        B, C, T = wav_3d.shape
+        
+        generator = torch.Generator(device=wav.device)
+        if seed is not None:
+            generator.manual_seed(int(seed))
+        else:
+            generator.seed()
+
+        replaced_wav = wav_3d.clone()
+        replace_len = int(T * max_ratio)
+        
+        for i in range(B):
+            start = torch.randint(0, max(1, T - replace_len), (1,), generator=generator).item()
+            segment = wav_3d[i, :, start:start + replace_len]
+            noise = torch.randn_like(segment, generator=generator)
+            
+            sig_pwr = torch.sum(segment ** 2, dim=-1, keepdim=True)
+            noise_pwr = torch.sum(noise ** 2, dim=-1, keepdim=True)
+            scale = torch.sqrt(sig_pwr / (noise_pwr * (10 ** (snr_db / 10)) + 1e-8))
+            
+            replaced_wav[i, :, start:start + replace_len] = scale * noise
+            
+        return replaced_wav.squeeze(1) if was_2d else replaced_wav
+
+    def apply_frame_shuffle(self, wav, frame_duration_ms=50, shuffle_ratio=0.2, seed=None):
+        was_2d = wav.dim() == 2
+        wav_3d = wav.unsqueeze(1) if was_2d else wav
+        B, C, T = wav_3d.shape
+        
+        generator = torch.Generator(device=wav.device)
+        if seed is not None:
+            generator.manual_seed(int(seed))
+        else:
+            generator.seed()
+
+        frame_size = int(self.sr * (frame_duration_ms / 1000.0))
+        if frame_size == 0 or T < frame_size:
+            return wav_3d.squeeze(1) if was_2d else wav_3d
+            
+        n_frames = T // frame_size
+        shuffle_frames = max(2, int(n_frames * shuffle_ratio))
+        
+        shuffled_wav = wav_3d.clone()
+        for i in range(B):
+            start_frame = torch.randint(0, max(1, n_frames - shuffle_frames), (1,), generator=generator).item()
+            frame_indices = torch.arange(start_frame, start_frame + shuffle_frames, device=wav.device)
+            
+            # Shuffle indices
+            perm = torch.randperm(shuffle_frames, generator=generator, device=wav.device)
+            shuffled_indices = frame_indices[perm]
+            
+            # Reconstruct the shuffled segment
+            temp = torch.zeros((C, shuffle_frames * frame_size), device=wav.device, dtype=wav.dtype)
+            for j in range(shuffle_frames):
+                shuff_idx = shuffled_indices[j]
+                temp[:, j*frame_size:(j+1)*frame_size] = wav_3d[i, :, shuff_idx*frame_size:(shuff_idx+1)*frame_size]
+                
+            shuffled_wav[i, :, start_frame*frame_size:(start_frame+shuffle_frames)*frame_size] = temp
+            
+        return shuffled_wav.squeeze(1) if was_2d else shuffled_wav
+
     def forward(self, wav, dtype="noise", **kwargs):
         seed = kwargs.get("seed")
         if dtype == "noise":
             return self.add_awgn(wav, snr_db=kwargs.get("snr_db", 20.0), seed=seed)
+        if dtype == "masking":
+            return self.apply_masking(wav, max_ratio=kwargs.get("max_ratio", 0.1), seed=seed)
+        if dtype == "replacement":
+            return self.apply_replacement(wav, max_ratio=kwargs.get("max_ratio", 0.1), snr_db=kwargs.get("snr_db", 0.0), seed=seed)
+        if dtype == "frame_shuffle":
+            return self.apply_frame_shuffle(wav, frame_duration_ms=kwargs.get("frame_duration_ms", 50), shuffle_ratio=kwargs.get("shuffle_ratio", 0.2), seed=seed)
         if dtype == "lowpass":
             return self.lowpass_filter(wav, cutoff_hz=kwargs.get("cutoff_hz", 4000))
         if dtype == "bandpass":
