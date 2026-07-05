@@ -35,15 +35,15 @@ C:\Users\Yeonjae Jung\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\
 
 3. Empirical Verification Results
 --------------------------------------------------
-Group A (Uniform 16-bit space) : 105/300 success (35.0%)
-Group B (256-word ECC Subspace): 117/300 success (39.0%)
+Group A (Uniform 16-bit space) : 119/300 success (39.7%)
+Group B (256-word ECC Subspace): 118/300 success (39.3%)
 --------------------------------------------------
-Fisher's Exact Test p-value: 0.3523
-TOST p-value (unpooled z-test, margin ¡¾15.0%p): 0.0026
-Post-Hoc Power (to detect 15.0%p diff at N=300): 96.8%
+Fisher's Exact Test p-value: 1.0000
+TOST p-value (unpooled z-test, margin ï¿½15.0%p): 0.0001
+Post-Hoc Power (to detect 15.0%p diff at N=300): 96.4%
 
 SUCCESS (EQUIVALENCE): We reject the null hypothesis of non-equivalence (p_tost < 0.05).
-   The success rates are statistically equivalent within a ¡¾15%p margin.
+   The success rates are statistically equivalent within a ï¿½15%p margin.
    This provides evidence of value-independence in the EnCodec neural channel.
 
 [Limitations Note]
