@@ -61,7 +61,7 @@ def plot_far_extrapolation(payload_bits=64, save_path="results/far_extrapolation
         if empirical_points and d in empirical_points:
             emp_x = [pt[0] for pt in empirical_points[d]]
             emp_y = [pt[1] for pt in empirical_points[d]]
-            plt.scatter(emp_x, emp_y, color=color, s=80, edgecolor='black', zorder=5, label=f"Empirical Data (d={d})")
+            plt.scatter(emp_x, emp_y, color=color, s=80, edgecolor='black', zorder=5, label=f"Mock Empirical (Illustrative) (d={d})")
     
     plt.xscale("log")
     plt.ylim(-0.05, 1.05)

@@ -4,7 +4,7 @@
 **AlignMark**(기존 연구)는 신경망을 통해 오디오의 특정 피처 영역을 보존(Feature-Aligned)하여 워터마크를 은닉하는 기술을 제시했습니다. 하지만 기존 딥러닝 기반 워터마킹 방법론들은 실제 행성 규모(Planetary-scale) 환경이나 엄격한 통신 이론(Information Theory) 관점에서 심각한 논리적, 학술적 결함을 지니고 있었습니다.
 
 **SurvAlign-P**는 이러한 결함을 비판적으로 분석하며, 본 논문의 단 하나뿐인 핵심 주장을 전개합니다: **"워터마크 에너지는 신경망 코덱의 압축 과정에서 살아남을 물리적 확률(Physical Survival Map)이라는 사전지식(Analytic Prior)에 비례하여 재배치되어야 한다."**
-본 연구에서 제안하는 미분 가능 게이트(Gate)는 완벽한 아키텍처라기보다는, 이 물리적 사전지식이 얼마나 강력한 일반화 성능을 이끌어내는지를 입증하기 위한 '최소한의 검증용 도구(Vehicle)' 역할을 수행합니다. 수학적 결함(Identity STE)을 안고 있는 어설픈 Gate조차도 Survival Map의 지도를 받을 경우 폭발적인 강건성 향상을 달성함을 증명함으로써, Analytic Prior의 본질적 우수성을 학술적으로 확증합니다.
+본 연구에서 제안하는 미분 가능 게이트(Gate)는 완벽한 아키텍처라기보다는, 이 물리적 사전지식이 얼마나 강력한 일반화 성능을 이끌어내는지를 입증하기 위한 '최소한의 검증용 도구(Vehicle)' 역할을 수행합니다. 수학적 결함(Identity STE)을 안고 있는 어설픈 Gate조차도 Survival Map의 지도를 받을 경우 폭발적인 강건성 향상을 달성할 것으로 기대하며, 이를 통해 Analytic Prior의 본질적 우수성을 학술적으로 입증하고자 합니다.
 
 ---
 
@@ -39,6 +39,7 @@ $N=10^6$ 수준만 되어도 이 확률은 사실상 1(100%)에 수렴하여 무
 따라서 **16-bit 페이로드만으로는 행성 규모의 FAR을 결코 수학적으로 보장할 수 없습니다.** 아래의 그래프는 16-bit 페이로드가 $N$이 증가함에 따라 얼마나 빠르게 무너지는지를 보여줍니다. 반면 오른쪽 그래프에서 확인할 수 있듯, 64-bit로 페이로드를 대폭 확장하면 $N=10^9$의 Planetary scale에서도 $FAR_{DB}$를 $10^{-6}$ 이하로 억제할 수 있습니다. 이것이 64-bit 확장의 필연적 당위성입니다. 기존 논문들이 16-bit로도 충분하다고 주장하는 것은 데이터베이스 크기($N$)를 전혀 반영하지 않은 단일 Pairwise 확률을 오용한 치명적 오류입니다.
 
 ![16-bit Extrapolation](./assets/16bit.png)
+*(위 산점도는 실제 관측 데이터가 아니며, 이항 분포 근사의 타당성을 보여주기 위한 16-bit 모델 기준의 가상 시뮬레이션(Illustrative) 데이터입니다.)*
 ![64-bit Planetary Extrapolation](./assets/64bit.png)
 
 ### 3.2. ECC 한계 극복 및 채널 독립성 실증 (TOST Equivalence)
@@ -138,8 +139,8 @@ graph TD
 > [!NOTE]
 > 단일 실행(Single run)으로 인한 우연성(random seed effect)을 배제하기 위해, 3개의 독립된 Global Seed로 전체 파이프라인(학습 및 평가)을 반복 수행한 결과를 보고합니다.
 
-*   **반복 실험 설정**: 3개의 무작위 초기화 시드에 대해 `train-clean-100` 데이터셋에서 Gate 학습을 수행한 뒤, 평가 데이터셋을 대상으로 `ffmpeg_mp3` 등 주요 Held-out 공격을 가하여 정확도를 측정했습니다.
-  *   **통계적 유의성 검정 (Paired T-Test) [PENDING]**: Baseline(기존 AlignMark)과 Proposed(SurvAlign-P) 간의 Exact-Match 향상 폭에 대해 3-seed 표본으로 T-검정을 수행하는 스크립트(`verify_main_results_significance.py`)가 완벽히 준비되어 있습니다. (현재 로컬 환경의 연산 자원 한계로 실제 3-seed 학습은 유보 상태이며, 추후 GPU 서버에서 스크립트 실행 후 실제 p-value 및 평균 $\pm$ 표준오차를 기입해야 합니다.)
+*   **반복 실험 설정**: 3개의 무작위 초기화 시드에 대해 `train-clean-100` 데이터셋에서 Gate 학습을 수행한 뒤, 평가 데이터셋을 대상으로 `ffmpeg_mp3` 등 주요 Held-out 공격을 가하여 정확도를 측정합니다.
+  *   **통계적 유의성 검정 (Paired T-Test) [PENDING]**: Baseline(기존 AlignMark)과 Proposed(SurvAlign-P) 간의 Exact-Match 향상 폭에 대해 **3-seed 단위 표본(N=3)**으로 독립적인 Paired T-검정을 수행하는 스크립트(`verify_main_results_significance.py`)가 준비되어 있습니다. (개별 오디오 샘플 풀링 시 발생하는 유사복제(Pseudoreplication) 오류를 방지하기 위해 시드 단위 평균으로 통계를 산출합니다.) 현재 로컬 환경의 연산 자원 한계로 실제 3-seed 학습은 유보 상태이며, 추후 GPU 서버에서 스크립트 실행 후 실제 p-value 및 평균 $\pm$ 표준오차를 기입해야 합니다.
 
 ### 8.2. 지각적 품질 (Subjective Quality & MOS)
 오디오 워터마킹에서 객관적 지표(PESQ, STOI 등)는 사람의 청각 인지를 완벽히 대변할 수 없습니다.

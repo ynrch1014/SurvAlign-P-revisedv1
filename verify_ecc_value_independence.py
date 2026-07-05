@@ -35,9 +35,29 @@ def main():
     
     n_samples = 300
     
-    # Create a fixed pseudo-random ECC Codebook (256 valid codewords)
-    # This acts as our "Nordstrom-Robinson" proxy subset.
-    ecc_codebook = torch.randint(0, 2, (256, 16), dtype=torch.long, device=device)
+    # Create a real Nordstrom-Robinson (16, 256, 6) Codebook
+    # We construct it using the Z4 Octacode and Gray mapping
+    def gray_map(z4_vec):
+        mapping = {0: [0,0], 1: [0,1], 2: [1,1], 3: [1,0]}
+        return np.array([mapping[val] for val in z4_vec]).flatten()
+
+    A = np.array([
+        [3, 1, 2, 1],
+        [1, 2, 3, 1],
+        [3, 3, 3, 2],
+        [2, 3, 1, 1]
+    ])
+
+    codewords = []
+    for i in range(256):
+        msg = [ (i >> 6) & 3, (i >> 4) & 3, (i >> 2) & 3, i & 3 ]
+        msg = np.array(msg)
+        parity = np.dot(msg, A) % 4
+        z4_word = np.concatenate([msg, parity])
+        codewords.append(gray_map(z4_word))
+
+    codewords = np.array(codewords)
+    ecc_codebook = torch.tensor(codewords, dtype=torch.long, device=device)
     
     hamming_a = []
     hamming_b = []

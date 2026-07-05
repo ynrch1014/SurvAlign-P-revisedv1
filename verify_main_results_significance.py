@@ -78,13 +78,16 @@ m_exact_mean, m_exact_std = np.mean(method_exacts)*100, np.std(method_exacts)*10
 print(f"Bit Accuracy   | Baseline: {b_acc_mean:.2f}% +- {b_acc_std:.2f}%  | Proposed: {m_acc_mean:.2f}% +- {m_acc_std:.2f}%")
 print(f"Exact Match    | Baseline: {b_exact_mean:.2f}% +- {b_exact_std:.2f}%  | Proposed: {m_exact_mean:.2f}% +- {m_exact_std:.2f}%")
 
-print("\n--- PAIRED T-TEST (Sample-level) ---")
-all_b_exact = []
-all_m_exact = []
+print("\n--- PAIRED T-TEST (Seed-level, n=3) ---")
+seed_b_exact_means = []
+seed_m_exact_means = []
 
 for s in seeds:
     stem = f"stat_sig_seed_{s}_librispeech_{mode}_{map_type}"
     sample_path = f"results/phase2/{stem}_samples.csv"
+    
+    b_exacts = []
+    m_exacts = []
     if os.path.exists(sample_path):
         with open(sample_path, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
@@ -93,18 +96,24 @@ for s in seeds:
                     sys = row["system"]
                     ex = float(row["exact"])
                     if sys == "baseline":
-                        all_b_exact.append(ex)
+                        b_exacts.append(ex)
                     elif sys == "method":
-                        all_m_exact.append(ex)
+                        m_exacts.append(ex)
+    
+    if len(b_exacts) > 0 and len(m_exacts) > 0:
+        seed_b_exact_means.append(np.mean(b_exacts) * 100)
+        seed_m_exact_means.append(np.mean(m_exacts) * 100)
 
-if len(all_b_exact) > 0:
-    t_stat, p_val = stats.ttest_rel(all_m_exact, all_b_exact)
-    print(f"Total samples evaluated across seeds: {len(all_b_exact)}")
+if len(seed_b_exact_means) == len(seeds):
+    t_stat, p_val = stats.ttest_rel(seed_m_exact_means, seed_b_exact_means)
+    print(f"Total independent seeds evaluated: {len(seed_b_exact_means)}")
+    print(f"Baseline Seed Means: {[f'{x:.2f}%' for x in seed_b_exact_means]}")
+    print(f"Proposed Seed Means: {[f'{x:.2f}%' for x in seed_m_exact_means]}")
     print(f"Paired t-test t-statistic: {t_stat:.4f}")
-    print(f"Paired t-test p-value: {p_val:.2e}")
+    print(f"Paired t-test p-value: {p_val:.4f}")
     if p_val < 0.05:
         print("SIGNIFICANT: The proposed method statistically significantly improves Exact Match Accuracy.")
     else:
         print("NOT SIGNIFICANT at alpha=0.05.")
 else:
-    print("Could not find sample files for t-test.")
+    print("Could not find sample files for all seeds to perform t-test.")
