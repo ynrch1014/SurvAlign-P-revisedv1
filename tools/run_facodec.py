@@ -25,10 +25,9 @@ def main():
         sys.exit(1)
         
     print("FAcodec implementation depends on specific checkpoint paths.")
-    print("Please modify tools/run_facodec.py to load your specific FAcodec checkpoints.")
-    # Stub fallback to avoid crashing the pipeline completely if they just want to bypass:
-    print("For now, copying input to output as a fallback...")
-    shutil.copyfile(args.input, args.output)
+    print("Please modify tools/run_facodec.py to load your specific FAcodec checkpoints and perform the actual encoding/decoding.")
+    print("Failing execution to prevent false robustness reporting.")
+    sys.exit(1)
 
 if __name__ == "__main__":
     main()
