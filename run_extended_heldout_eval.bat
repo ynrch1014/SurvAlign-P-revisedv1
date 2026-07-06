@@ -14,12 +14,12 @@ REM   run_extended_heldout_eval.bat            -> 내부 공격만 우선 실행
 REM   (facodec/clearervoice wrapper 준비되면 아래 SET 값 채우고 재실행)
 REM ============================================================================
 
-REM --- 1) 아직 wrapper가 없는 외부 공격은 빈 문자열로 둡니다 (자동 SKIP) ---
-SET FACODEC_CMD=
-SET CLEAREVOICE_CMD=
-SET ENCODEC_CMD=
-SET DAC_CMD=
-SET VOCOS_CMD=
+REM --- 1) 외부 공격 래퍼 스크립트 연결 ---
+SET FACODEC_CMD=python tools/run_facodec.py --input {input} --output {output}
+SET CLEAREVOICE_CMD=python tools/run_clearervoice.py --input {input} --output {output}
+SET ENCODEC_CMD=python tools/run_encodec.py --input {input} --output {output}
+SET DAC_CMD=python tools/run_dac.py --input {input} --output {output}
+SET VOCOS_CMD=python tools/run_vocos.py --input {input} --output {output}
 
 REM --- 2) wrapper 준비가 끝나면 아래 예시처럼 채워 넣고 다시 실행하세요 ---
 REM SET FACODEC_CMD=python tools/run_facodec.py --input {input} --output {output}
