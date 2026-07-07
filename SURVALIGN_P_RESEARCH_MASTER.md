@@ -302,18 +302,16 @@ graph TD
    *   **목적**: 워터마크가 없는 콘텐츠 유입 시의 탐지 능력(Logit Margin/Entropy vs Frame Logits) 비교 및 Threshold 산출.
    *   **스크립트**: `python verify_detection_specificity.py`
    *   **결과**: Logit Margin AUC 0.996 확보 완료 및 결과 JSON 저장됨 (`results/detection_specificity.json`)
-3. **[대기/GPU] 메인 유의성 검정 및 Paired t-test (6.1절 및 6.2절 대응)**
-   *   **목적**: 제안 방법론의 Held-out 성능(ffmpeg_mp3) 개선 폭을 3개 시드로 평균/표준편차/p-value 도출. (Train/Validation 누출 버그 수정 완료본)
+3. **[대기/GPU] 전체 베이스라인 및 7종 절제 연구 종합 평가 (6.1절 및 7.1절 대응)**
+   *   **목적**: 메인 모델과 7종의 모든 대조군(Ablation) 모델을 순차적으로 학습 및 평가하여 논문의 전체 성능 테이블을 완성합니다.
+   *   **스크립트**: `run_all_experiments.bat` (총 9개 모드 순차 실행: baseline, uniform_upper, analytic_survival, constant_gate, random_gate, shuffled_survival, energy_gate, proposed_gate_survival, proposed_gate_codec_utility)
+4. **[대기/GPU] 메인 유의성 검정 및 Paired t-test (6.2절 대응)**
+   *   **목적**: 제안 방법론의 Held-out 성능(ffmpeg_mp3) 개선 폭을 3개 시드(42, 43, 44)로 다중 반복 학습하여 평균/표준편차/p-value 도출.
    *   **스크립트**: `python verify_main_results_significance.py`
    *   **결과**: 학습 및 평가 완료 후 `results/main_results_significance.json` 생성.
-4. **[대기/GPU] 절제 연구 (Ablation Studies) - Random/Uniform 대조군 (7.1절 대응)**
-   *   **목적**: 물리적 사전지식(Survival Map)의 우수성을 단순 재배치(Random/Uniform)와 비교.
-   *   **스크립트**:
-       *   `python verify_main_results_significance.py --mode random_gate`
-       *   `python verify_main_results_significance.py --mode constant_gate`
 5. **[대기/GPU] 확장 강건성 평가 (Appendix C 대응)**
    *   **목적**: 메인 평가 후, 저장된 모델을 바탕으로 외부 최신 코덱(FACodec 등)에 대한 일반화 방어력 검증.
-   *   **스크립트**: `run_extended_heldout_eval.bat` (내부적으로 `verify_extended_heldout_robustness.py` 호출)
+   *   **스크립트**: `run_extended_heldout_eval.bat` (내부적으로 `verify_extended_heldout_robustness.py` 호출 및 외부 래퍼 스크립트 연결)
 6. **[대기/GPU] 다도메인 확장성 평가 (8.1절, 8.2절 대응)**
    *   **목적**: 타 데이터셋(VCTK, LJSpeech)에서의 동작 확인.
    *   **스크립트**:
@@ -350,12 +348,12 @@ graph TD
 **6. Main Results**
 *   **논리 흐름**: Held-out 강건성(Table I) → Paired t-test(평균/표준편차, 효과크기) → 지각적 품질 유지.
 *   **RM 대응 섹션**: 8.1절 통계적 유의성 검정
-*   **실행 스크립트**: `python verify_main_results_significance.py` (Step 3 대기)
+*   **실행 스크립트**: `run_all_experiments.bat`의 Baseline vs Proposed 결과 (Step 3 대기), `python verify_main_results_significance.py` (Step 4 대기)
 
 **7. Ablation Studies**
-*   **논리 흐름**: Survival vs Random vs Uniform → Equal vs Cap mode → Analytic Survival MAE.
+*   **논리 흐름**: 7종 대조군(Random, Constant, Shuffled, Energy, Analytic, Codec-utility, Uniform) 비교 분석.
 *   **RM 대응 섹션**: 8.6절 실험 설계의 포괄성 및 절제 연구
-*   **실행 스크립트**: Random/Uniform 대조군 스크립트 (Step 4 대기)
+*   **실행 스크립트**: `run_all_experiments.bat` 전체 실행을 통한 7종 대조군 성능 확보 (Step 3 대기)
 
 **8. Generalization**
 *   **논리 흐름**: VCTK (다화자) / LJSpeech (단일장문) → 도메인 독립성 검증.
@@ -369,6 +367,7 @@ graph TD
 **10. Threat Model & Limitations**
 *   **논리 흐름**: Black-box attacker 모델 → White-box 공격 한계 명시 → Clean-audio False Positive Threat (Compound FAR 재계산) 완결성 부여.
 *   **RM 대응 섹션**: 8.4절 Black-box 위협 모델과 한계점 (False Positive Threat 및 Compound FAR)
+*   **실행 스크립트**: `python verify_detection_specificity.py` (Step 2 완료)
 
 **11. Conclusion**
 *   **논리 흐름**: 기여 및 향후 연구 요약.
@@ -376,8 +375,7 @@ graph TD
 **Appendix**
 *   A. FAR 외삽 상세 (Union Bound 유도)
 *   B. ECC Value-Independence 상세 (수행된 TOST, Fisher's exact test)
-*   C. 확장 Held-out 결과 (진짜 EnCodec, FACodec, ClearerVoice 등) → `run_extended_heldout_eval.bat` (Step 5 대기)
-    * (프록시로만 훈련된 모델이 실제 환경의 진짜 EnCodec을 방어해내는지 검증하는 매우 중요한 추가 실험)
+*   C. 확장 Held-out 결과 (실제 EnCodec, FACodec, ClearerVoice 등) → `run_extended_heldout_eval.bat` (Step 5 대기)
 *   D. 재현 조건 (하이퍼파라미터 등)
-*   E. Clean-Audio Detection/Specificity 분석 (Logit Margin vs frame_logits 비교) → `python verify_detection_specificity.py` (Step 2 완료)
+*   E. Clean-Audio Detection/Specificity 분석 (Logit Margin vs frame_logits 비교)
 *   F. MOS/ABX 청취 평가 (미착수)
