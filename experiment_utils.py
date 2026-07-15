@@ -48,6 +48,85 @@ def overlapping_attack_families(left: Sequence[str], right: Sequence[str]) -> Li
     return sorted(set(map(attack_family, left)) & set(map(attack_family, right)))
 
 
+# Attack names implemented purely via the differentiable `DifferentiableDistortion`
+# (no external process / codec adapter required). Shared by phase1_attribution.py and
+# phase2_training.py so the two canonical pipelines cannot silently drift apart.
+INTERNAL_ATTACK_NAMES: Tuple[str, ...] = (
+    "clean", "identity", "noise", "noise10db", "lowpass", "bandpass", "resample",
+    "speechtokenizer_nq6", "speechtokenizer_nq8", "strong_speechtokenizer", "spectral_proxy",
+    "masking", "replacement", "frame_shuffle",
+)
+
+
+def apply_internal_attack(wav, attack_name: str, distorter, seed: int):
+    """Dispatch table for the differentiable-only attacks in ``INTERNAL_ATTACK_NAMES``."""
+    if attack_name in {"clean", "identity"}:
+        return wav
+    if attack_name == "noise":
+        return distorter(wav, "noise", snr_db=20.0, seed=seed)
+    if attack_name == "noise10db":
+        return distorter(wav, "noise", snr_db=10.0, seed=seed)
+    if attack_name == "lowpass":
+        return distorter(wav, "lowpass", cutoff_hz=4000)
+    if attack_name == "bandpass":
+        return distorter(wav, "bandpass", low_hz=300, high_hz=3400)
+    if attack_name == "resample":
+        return distorter(wav, "resample", down_rate=2)
+    if attack_name == "speechtokenizer_nq6":
+        return distorter(wav, "reconstruct", n_q=6)
+    if attack_name == "speechtokenizer_nq8":
+        return distorter(wav, "reconstruct", n_q=8)
+    if attack_name == "strong_speechtokenizer":
+        return distorter(wav, "strong_speechtokenizer", n_q=2)
+    if attack_name == "spectral_proxy":
+        return distorter(wav, "spectral_proxy", cutoff_ratio=0.7, seed=seed)
+    if attack_name == "masking":
+        return distorter(wav, "masking", max_ratio=0.1, seed=seed)
+    if attack_name == "replacement":
+        return distorter(wav, "replacement", max_ratio=0.1, snr_db=0.0, seed=seed)
+    if attack_name == "frame_shuffle":
+        return distorter(wav, "frame_shuffle", frame_duration_ms=50, shuffle_ratio=0.2, seed=seed)
+    raise ValueError(f"Unknown internal attack: {attack_name}")
+
+
+def apply_eval_attack(wav, attack_name: str, distorter, seed: int, args):
+    """Full attack dispatch (internal + external codec/command adapters).
+
+    Shared by phase1_attribution.py and phase2_training.py. External adapters are imported
+    lazily to avoid a module-level circular import (external_attacks.py imports from this
+    module).
+    """
+    if attack_name in INTERNAL_ATTACK_NAMES:
+        return apply_internal_attack(wav, attack_name, distorter, seed)
+    from external_attacks import command_roundtrip_batch, ffmpeg_mp3_roundtrip_batch
+
+    if attack_name == "ffmpeg_mp3":
+        return ffmpeg_mp3_roundtrip_batch(wav, sample_rate=16000, bitrate=args.mp3_bitrate)
+    if attack_name in {"clearervoice", "clearervoice_only"}:
+        if not args.clearervoice_command:
+            raise ValueError(f"{attack_name} requested without --clearervoice_command")
+        source = wav
+        if attack_name == "clearervoice":
+            source = distorter(wav, "noise", snr_db=args.clearervoice_snr, seed=seed)
+        return command_roundtrip_batch(source, args.clearervoice_command, sample_rate=16000)
+    if attack_name == "facodec":
+        if not args.facodec_command:
+            raise ValueError("facodec attack requested without --facodec_command")
+        return command_roundtrip_batch(wav, args.facodec_command, sample_rate=16000)
+    command_attr = {
+        "encodec": "encodec_command",
+        "dac": "dac_command",
+        "vocos": "vocos_command",
+        "hifigan": "hifigan_command",
+    }.get(attack_name)
+    if command_attr is not None:
+        command = getattr(args, command_attr)
+        if not command:
+            raise ValueError(f"{attack_name} requested without --{command_attr}")
+        return command_roundtrip_batch(wav, command, sample_rate=16000)
+    raise ValueError(f"Unknown evaluation attack: {attack_name}")
+
+
 # Codecs the paper reserves as cross-codec "held-out" (never exposed during map building or
 # training) generalization evidence. Using any of them — even via a differentiable proxy — to
 # build the Survival Map invalidates the C10 cross-codec generalization claim.

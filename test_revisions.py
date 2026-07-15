@@ -9,8 +9,12 @@ from __future__ import annotations
 import numpy as np
 import torch
 
+import experiment_utils
+import phase1_attribution
+import phase2_training
 from experiment_utils import (
     heldout_codec_of, survival_heldout_leakage, HELDOUT_CODECS, project_residual_l2,
+    INTERNAL_ATTACK_NAMES, apply_internal_attack, apply_eval_attack, attack_family,
 )
 from phase1_attribution import (
     _target_norm_reference, paired_statistics, holm_bonferroni, cliffs_delta,
@@ -111,6 +115,80 @@ def test_cache_gather():  # 3-A
     stacked = _gather_cached_survival(cache, ["a", "b"], torch.device("cpu"), torch.float32)
     assert stacked.shape == (2, 5, 7)
     assert _gather_cached_survival(cache, ["a", "missing"], torch.device("cpu"), torch.float32) is None
+
+
+class _FakeArgs:
+    """Minimal args stand-in for apply_eval_attack's external-adapter branches."""
+
+    def __init__(self, **overrides):
+        self.mp3_bitrate = "64k"
+        self.clearervoice_command = None
+        self.clearervoice_snr = 20.0
+        self.facodec_command = None
+        self.encodec_command = None
+        self.dac_command = None
+        self.vocos_command = None
+        self.hifigan_command = None
+        for key, value in overrides.items():
+            setattr(self, key, value)
+
+
+def test_phase1_phase2_share_attack_dispatch():  # refactor: dedup phase1/phase2 attack tables
+    """phase1_attribution.py and phase2_training.py must resolve to the exact same
+    experiment_utils dispatch functions (no re-forked copies), and the dispatch behavior
+    itself (attack name coverage, family mapping) must match what both files had before
+    the shared _apply_internal_attack/apply_eval_attack existed."""
+    assert phase1_attribution._apply_internal_attack is experiment_utils.apply_internal_attack
+    assert phase2_training._internal_attack is experiment_utils.apply_internal_attack
+    assert phase1_attribution.apply_eval_attack is experiment_utils.apply_eval_attack
+    assert phase2_training.apply_eval_attack is experiment_utils.apply_eval_attack
+
+    # Attack name coverage must match the original hard-coded sets from both files.
+    expected_internal = {
+        "clean", "identity", "noise", "noise10db", "lowpass", "bandpass", "resample",
+        "speechtokenizer_nq6", "speechtokenizer_nq8", "strong_speechtokenizer", "spectral_proxy",
+        "masking", "replacement", "frame_shuffle",
+    }
+    assert set(INTERNAL_ATTACK_NAMES) == expected_internal
+
+    # Unknown attack names still raise, exactly as before.
+    dist = DifferentiableDistortion(sr=16000, vae=None)
+    wav = torch.randn(1, 1, 3200) * 0.02
+    try:
+        apply_internal_attack(wav, "not_a_real_attack", dist, seed=0)
+        assert False, "expected ValueError for unknown internal attack"
+    except ValueError:
+        pass
+    try:
+        apply_eval_attack(wav, "not_a_real_attack", dist, seed=0, args=_FakeArgs())
+        assert False, "expected ValueError for unknown eval attack"
+    except ValueError:
+        pass
+
+    # Missing command args must still raise (facodec/clearervoice/encodec/etc guards preserved).
+    for attack_name, attr in [
+        ("facodec", "facodec_command"),
+        ("clearervoice", "clearervoice_command"),
+        ("encodec", "encodec_command"),
+    ]:
+        try:
+            apply_eval_attack(wav, attack_name, dist, seed=0, args=_FakeArgs())
+            assert False, f"expected ValueError for {attack_name} without --{attr}"
+        except ValueError:
+            pass
+
+    # attack_family mapping is untouched by the refactor.
+    assert attack_family("noise10db") == "awgn"
+    assert attack_family("speechtokenizer_nq6") == "speechtokenizer"
+    assert attack_family("facodec_proxy") == "speechtokenizer"
+    assert attack_family("ffmpeg_mp3") == "real_mp3"
+
+    # Same seed => identical output regardless of which module's alias is used
+    # (they are the same function object, but this also pins actual numeric behavior).
+    seed = 7
+    out_via_p1 = phase1_attribution._apply_internal_attack(wav, "noise", dist, seed)
+    out_via_p2 = phase2_training._internal_attack(wav, "noise", dist, seed)
+    assert torch.equal(out_via_p1, out_via_p2)
 
 
 def main():

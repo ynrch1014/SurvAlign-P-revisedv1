@@ -36,9 +36,10 @@ except ImportError:
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from external_attacks import command_roundtrip_batch, ffmpeg_mp3_roundtrip_batch
 from experiment_utils import (
     align_audio_tensors,
+    apply_eval_attack,
+    apply_internal_attack as _internal_attack,
     compute_attribution_metrics,
     compute_attribution_per_sample,
     attribution_metrics_by_candidate_size,
@@ -97,71 +98,6 @@ class SimplifiedSurvivalGate(nn.Module):
         logits = self.conv(feature_pack).squeeze(1)
         scale = 1.0 + self.gate_range * torch.tanh(logits)
         return residual_spec * scale, scale
-
-
-def _internal_attack(wav, attack_name, distorter, seed):
-    if attack_name in {"clean", "identity"}:
-        return wav
-    if attack_name == "noise":
-        return distorter(wav, "noise", snr_db=20.0, seed=seed)
-    if attack_name == "noise10db":
-        return distorter(wav, "noise", snr_db=10.0, seed=seed)
-    if attack_name == "lowpass":
-        return distorter(wav, "lowpass", cutoff_hz=4000)
-    if attack_name == "bandpass":
-        return distorter(wav, "bandpass", low_hz=300, high_hz=3400)
-    if attack_name == "resample":
-        return distorter(wav, "resample", down_rate=2)
-    if attack_name == "speechtokenizer_nq6":
-        return distorter(wav, "reconstruct", n_q=6)
-    if attack_name == "speechtokenizer_nq8":
-        return distorter(wav, "reconstruct", n_q=8)
-    if attack_name == "strong_speechtokenizer":
-        return distorter(wav, "strong_speechtokenizer", n_q=2)
-    if attack_name == "spectral_proxy":
-        return distorter(wav, "spectral_proxy", cutoff_ratio=0.7, seed=seed)
-    if attack_name == "masking":
-        return distorter(wav, "masking", max_ratio=0.1, seed=seed)
-    if attack_name == "replacement":
-        return distorter(wav, "replacement", max_ratio=0.1, snr_db=0.0, seed=seed)
-    if attack_name == "frame_shuffle":
-        return distorter(wav, "frame_shuffle", frame_duration_ms=50, shuffle_ratio=0.2, seed=seed)
-    raise ValueError(f"Unknown internal attack: {attack_name}")
-
-
-def apply_eval_attack(wav, attack_name, distorter, seed, args):
-    internal = {
-        "clean", "identity", "noise", "noise10db", "lowpass", "bandpass", "resample",
-        "speechtokenizer_nq6", "speechtokenizer_nq8", "strong_speechtokenizer", "spectral_proxy",
-        "masking", "replacement", "frame_shuffle",
-    }
-    if attack_name in internal:
-        return _internal_attack(wav, attack_name, distorter, seed)
-    if attack_name == "ffmpeg_mp3":
-        return ffmpeg_mp3_roundtrip_batch(wav, sample_rate=16000, bitrate=args.mp3_bitrate)
-    if attack_name in {"clearervoice", "clearervoice_only"}:
-        if not args.clearervoice_command:
-            raise ValueError(f"{attack_name} requested without --clearervoice_command")
-        source = wav
-        if attack_name == "clearervoice":
-            source = distorter(wav, "noise", snr_db=args.clearervoice_snr, seed=seed)
-        return command_roundtrip_batch(source, args.clearervoice_command, sample_rate=16000)
-    if attack_name == "facodec":
-        if not args.facodec_command:
-            raise ValueError("facodec requested without --facodec_command")
-        return command_roundtrip_batch(wav, args.facodec_command, sample_rate=16000)
-    command_attr = {
-        "encodec": "encodec_command",
-        "dac": "dac_command",
-        "vocos": "vocos_command",
-        "hifigan": "hifigan_command",
-    }.get(attack_name)
-    if command_attr is not None:
-        command = getattr(args, command_attr)
-        if not command:
-            raise ValueError(f"{attack_name} requested without --{command_attr}")
-        return command_roundtrip_batch(wav, command, sample_rate=16000)
-    raise ValueError(f"Unknown evaluation attack: {attack_name}")
 
 
 def build_guide_map(args, alignmark, distorter, wav, wav_wm, residual, context_seed, precomputed_survival=None):
