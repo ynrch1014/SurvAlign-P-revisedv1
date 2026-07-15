@@ -197,24 +197,45 @@ def test_phase1_phase2_share_attack_dispatch():  # refactor: dedup phase1/phase2
 
 
 class _MockEncodecModel:
-    """Identity in/out stand-in for `encodec.EncodecModel`: pins the shape/caching contract
-    without needing the real (unavailable in this environment) `encodec` package."""
+    """Stand-in for `encodec.EncodecModel`. `decode()` is an identity pass-through of the
+    original audio (stashed in the unused "scale" slot of the (codes, scale) tuple) so
+    `encodec_roundtrip_batch`'s shape checks still work. `encode()` fabricates codes shaped
+    (B, K, T) with K deliberately != any batch size used below (matching encodec's own
+    documented "codes is [B, K, T]" convention), so a caller that mixes up the batch and
+    codebook axes before calling Vocos's `codes_to_features` is caught below."""
 
     sample_rate = 24000
     load_count = 0
+    num_codebooks = 8
 
     def __init__(self):
         type(self).load_count += 1
 
     def encode(self, wav):
-        return [(wav, None)]
+        batch, _, time = wav.shape
+        codes = torch.zeros(batch, self.num_codebooks, time, dtype=torch.long)
+        return [(codes, wav)]
 
     def decode(self, encoded_frames):
-        return encoded_frames[0][0]
+        _, wav = encoded_frames[0]
+        return wav
 
 
 class _MockVocosModel:
-    """Identity in/out stand-in for `vocos.Vocos`."""
+    """Stand-in for `vocos.Vocos` that reproduces two real shape contracts so regressions
+    fail here instead of only on a real GPU run:
+
+    1. `codes_to_features` (vocos/pretrained.py) expects codes shaped (K, T) or (K, B, L)
+       -- codebook count first. Passing raw encodec's (B, K, T) codes un-transposed makes
+       the codebook axis look like the batch axis, so the returned "batch" size becomes K
+       instead of the true B. This mock encodes only that shape contract (codes.shape[1]
+       becomes the output's batch dim), not the real embedding-table math.
+    2. `AdaLayerNorm` (vocos/modules.py) broadcasts `cond_embedding_id` against the whole
+       batch: `scale = self.scale(cond_embedding_id)` has shape (len(bandwidth_id), dim),
+       multiplied against features of shape (B, T, dim). Only a single shared id (shape
+       (1,)) broadcasts correctly for any batch size; one id per sample (shape (B,)) does
+       not, once B != T.
+    """
 
     load_count = 0
 
@@ -222,10 +243,19 @@ class _MockVocosModel:
         type(self).load_count += 1
 
     def codes_to_features(self, codes):
-        return codes
+        if codes.dim() == 2:
+            codes = codes.unsqueeze(1)  # (K, T) -> (K, 1, T)
+        _, batch, time = codes.shape
+        channels = 5
+        return codes.new_zeros(batch, channels, time, dtype=torch.float32)
 
     def decode(self, features, bandwidth_id=None):
-        return features.squeeze(1)
+        x = features.transpose(1, 2)  # (B, C, T) -> (B, T, C), as VocosBackbone.forward does
+        dim = x.shape[-1]
+        scale = torch.ones(bandwidth_id.shape[0], dim)
+        shift = torch.zeros(bandwidth_id.shape[0], dim)
+        x = x * scale + shift
+        return x.mean(dim=-1)
 
 
 def test_encodec_vocos_inprocess_dispatch():  # in-process Encodec/Vocos (avoid per-sample subprocess reload)

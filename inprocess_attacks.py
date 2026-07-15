@@ -129,8 +129,24 @@ def vocos_roundtrip_batch(wav: torch.Tensor, device, sample_rate: int = 16000) -
 
     with torch.no_grad():
         encoded_frames = encodec_model.encode(wav_in)
-        features = vocos_model.codes_to_features(encoded_frames[0][0])
-        bandwidth_id = torch.tensor([2] * wav_in.shape[0], device=device)
+        # encodec.EncodecModel.encode() returns codes shaped (B, K, T) ("codes is [B, K, T]",
+        # encodec/model.py) -- batch first. vocos.Vocos.codes_to_features expects the
+        # opposite convention, (K, T) or (K, B, T) -- codebook count first (see its docstring
+        # and the charactr/vocos README example, `codes_to_features(torch.randint(..., size=
+        # (8, 200)))`, i.e. (K, L) with no leading batch dim at all for a single item).
+        # Without this transpose, codes_to_features silently sums over the true batch
+        # dimension instead of the codebook dimension, corrupting the output and (whenever
+        # num_codebooks != batch_size) leaving the result with the wrong "batch" size.
+        codes = encoded_frames[0][0].transpose(0, 1)  # (B, K, T) -> (K, B, T)
+        features = vocos_model.codes_to_features(codes)
+        # Vocos's AdaLayerNorm (vocos/modules.py) broadcasts `cond_embedding_id` against the
+        # whole batch: `scale = self.scale(bandwidth_id)` has shape (len(bandwidth_id), dim),
+        # multiplied against features of shape (B, T, dim). A single shared id (shape (1,))
+        # broadcasts correctly for any batch size; one id per sample (shape (B,)) does not --
+        # it collides with the T dimension once B != T (e.g. RuntimeError: size of tensor a
+        # (T) must match size of tensor b (B) at non-singleton dimension 1). Vocos has no
+        # per-sample bandwidth selection API, so one shared id for the whole batch is correct.
+        bandwidth_id = torch.tensor([2], device=device)
         decoded = vocos_model.decode(features, bandwidth_id=bandwidth_id)  # (B, T'')
 
     decoded_back = AF.resample(decoded, codec_sr, sample_rate) if sample_rate != codec_sr else decoded
