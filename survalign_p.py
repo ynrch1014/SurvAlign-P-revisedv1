@@ -563,7 +563,7 @@ class DifferentiableDistortion(nn.Module):
         mask_len = int(T * max_ratio)
         
         for i in range(B):
-            start = torch.randint(0, max(1, T - mask_len), (1,), generator=generator).item()
+            start = torch.randint(0, max(1, T - mask_len), (1,), generator=generator, device=wav.device).item()
             mask[i, :, start:start + mask_len] = 0.0
             
         masked_wav = wav_3d * mask
@@ -584,9 +584,12 @@ class DifferentiableDistortion(nn.Module):
         replace_len = int(T * max_ratio)
         
         for i in range(B):
-            start = torch.randint(0, max(1, T - replace_len), (1,), generator=generator).item()
+            start = torch.randint(0, max(1, T - replace_len), (1,), generator=generator, device=wav.device).item()
             segment = wav_3d[i, :, start:start + replace_len]
-            noise = torch.randn_like(segment, generator=generator)
+            # torch.randn_like(..., generator=...) only gained a `generator` kwarg in
+            # newer torch releases; torch.randn(shape, generator=..., device=..., dtype=...)
+            # is the portable equivalent (same pattern as the module-level _randn_like).
+            noise = torch.randn(segment.shape, generator=generator, device=segment.device, dtype=segment.dtype)
             
             sig_pwr = torch.sum(segment ** 2, dim=-1, keepdim=True)
             noise_pwr = torch.sum(noise ** 2, dim=-1, keepdim=True)
@@ -616,7 +619,7 @@ class DifferentiableDistortion(nn.Module):
         
         shuffled_wav = wav_3d.clone()
         for i in range(B):
-            start_frame = torch.randint(0, max(1, n_frames - shuffle_frames), (1,), generator=generator).item()
+            start_frame = torch.randint(0, max(1, n_frames - shuffle_frames), (1,), generator=generator, device=wav.device).item()
             frame_indices = torch.arange(start_frame, start_frame + shuffle_frames, device=wav.device)
             
             # Shuffle indices

@@ -741,6 +741,31 @@ def test_survival_map_supports_new_attacks():  # emergency patch 2: new attacks 
         inprocess_attacks._MODEL_CACHE.clear()
 
 
+def test_masking_replacement_frame_shuffle_gpu_generator_device():  # emergency patch 3
+    """torch.randint(...) without an explicit device= argument always samples on CPU
+    regardless of the generator's own device, so a CUDA generator + no device= raised
+    'RuntimeError: Expected a cpu device type for generator but found cuda' the first time
+    apply_masking/apply_replacement/apply_frame_shuffle actually ran on GPU (they were only
+    added to survival_attacks this session; the bug existed unnoticed before that). Skipped
+    on CPU-only machines since the bug is CUDA-specific -- run this on a GPU box (e.g.
+    RunPod) to actually exercise the fix."""
+    if not torch.cuda.is_available():
+        print("  (skipped: no CUDA device available)")
+        return
+
+    dist = DifferentiableDistortion(sr=16000, vae=None).to("cuda")
+    wav = torch.randn(2, 1, 3200, device="cuda") * 0.05
+    for dtype, kwargs in [
+        ("masking", dict(max_ratio=0.1, seed=1)),
+        ("replacement", dict(max_ratio=0.1, snr_db=0.0, seed=2)),
+        ("frame_shuffle", dict(frame_duration_ms=50, shuffle_ratio=0.2, seed=3)),
+    ]:
+        out = dist(wav, dtype, **kwargs)
+        assert out.shape == wav.shape, dtype
+        assert out.device.type == "cuda", dtype
+        assert torch.isfinite(out).all(), dtype
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for test in tests:
