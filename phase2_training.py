@@ -76,6 +76,19 @@ def parse_csv_list(value: str) -> List[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+# Attacks train_gate() can run through with a differentiable forward pass (no argmax/
+# discrete-codebook bottleneck blocking backprop). Kept as a module-level constant --
+# not re-derived inline -- so it can't silently drift from --train_attacks' actual default
+# again (it already has twice: masking/replacement/frame_shuffle were added to
+# --train_attacks' default without updating this set, and highpass was added as a new
+# differentiable attack without updating this set either).
+TRAIN_GATE_SUPPORTED_ATTACKS = frozenset({
+    "noise", "noise10db", "lowpass", "bandpass", "highpass", "resample",
+    "speechtokenizer_nq6", "speechtokenizer_nq8", "strong_speechtokenizer",
+    "spectral_proxy", "clean", "masking", "replacement", "frame_shuffle",
+})
+
+
 class SimplifiedSurvivalGate(nn.Module):
     def __init__(self, in_channels=4, hidden_dim=16, gate_range=0.2):
         super().__init__()
@@ -307,10 +320,7 @@ def _gather_cached_survival(cache, sample_ids, device, dtype):
 def train_gate(args, device, alignmark, distorter, dataset_train, dataset_val, survival_cache=None):
     if not args.train_attack_names:
         raise ValueError("At least one training attack is required")
-    unsupported = set(args.train_attack_names) - {
-        "noise", "noise10db", "lowpass", "bandpass", "resample", "speechtokenizer_nq6",
-        "speechtokenizer_nq8", "strong_speechtokenizer", "spectral_proxy", "clean",
-    }
+    unsupported = set(args.train_attack_names) - TRAIN_GATE_SUPPORTED_ATTACKS
     if unsupported:
         raise ValueError(f"Non-differentiable/unknown train attacks: {sorted(unsupported)}")
     gate = SimplifiedSurvivalGate(in_channels=4, gate_range=args.gate_range).to(device)
@@ -352,45 +362,54 @@ def train_gate(args, device, alignmark, distorter, dataset_train, dataset_val, s
                 precomputed_survival = _gather_cached_survival(survival_cache, sample_ids, device, wav.dtype)
 
             optimizer.zero_grad(set_to_none=True)
-            with torch.autocast(device_type=device.type, enabled=amp_enabled):
-                feature_pack, residual_spec, guide, masking_map = build_guide_map(
-                    args,
-                    alignmark,
-                    distorter,
-                    wav,
-                    wav_wm,
-                    residual,
-                    context_seed=args.seed + epoch * 100000 + step,
-                    precomputed_survival=precomputed_survival,
-                )
-                gated_spec, scale = gate(feature_pack, residual_spec)
-                gated_residual = istft_audio(gated_spec, length=wav.shape[-1], n_fft=256, hop_length=64)
-                projected = project_residual_l2(
-                    gated_residual.unsqueeze(1), residual, mode=args.projection_mode
-                ).squeeze(1)
-                candidate = (wav.squeeze(1) + projected).unsqueeze(1)
-
-                robust_loss = torch.zeros((), device=device)
-                for attack_index, attack in enumerate(args.train_attack_names):
-                    attacked = _internal_attack(
-                        candidate, attack, distorter, args.seed + epoch * 1000000 + step * 100 + attack_index
+            # alignmark.decode_logits_with_grad() backprops through wm_model.encoder, a
+            # SEANetEncoder with an LSTM (SLSTM) submodule left in eval() mode (frozen
+            # inference model). cudnn's RNN backward requires the module to have been in
+            # train() mode at forward time; eval-mode + cudnn raises "cudnn RNN backward
+            # can only be called in training mode". phase1_attribution.py's equivalent
+            # gradient-map paths already work around this the same way (disable cudnn for
+            # this block; SEANetEncoder has no BatchNorm/Dropout, so this has no other
+            # numerical effect, just forces the non-cudnn RNN backward path).
+            with torch.backends.cudnn.flags(enabled=False):
+                with torch.autocast(device_type=device.type, enabled=amp_enabled):
+                    feature_pack, residual_spec, guide, masking_map = build_guide_map(
+                        args,
+                        alignmark,
+                        distorter,
+                        wav,
+                        wav_wm,
+                        residual,
+                        context_seed=args.seed + epoch * 100000 + step,
+                        precomputed_survival=precomputed_survival,
                     )
-                    _, logits = alignmark.decode_logits_with_grad(attacked)
-                    robust_loss = robust_loss + compute_chunk_ce_loss(logits, msg)
-                robust_loss = robust_loss / len(args.train_attack_names)
+                    gated_spec, scale = gate(feature_pack, residual_spec)
+                    gated_residual = istft_audio(gated_spec, length=wav.shape[-1], n_fft=256, hop_length=64)
+                    projected = project_residual_l2(
+                        gated_residual.unsqueeze(1), residual, mode=args.projection_mode
+                    ).squeeze(1)
+                    candidate = (wav.squeeze(1) + projected).unsqueeze(1)
 
-                deviation_loss = torch.mean((scale - 1.0) ** 2)
-                # Penalize only positive amplification in perceptually exposed (low-energy) bins.
-                exposed_amplification = F.relu(scale - 1.0) * (1.0 - masking_map)
-                masking_loss = torch.mean(exposed_amplification**2)
-                tv_loss = compute_total_variation_loss(scale)
-                total = (
-                    robust_loss
-                    + args.lambda_dev * deviation_loss
-                    + args.lambda_mask * masking_loss
-                    + args.lambda_tv * tv_loss
-                )
-            scaler.scale(total).backward()
+                    robust_loss = torch.zeros((), device=device)
+                    for attack_index, attack in enumerate(args.train_attack_names):
+                        attacked = _internal_attack(
+                            candidate, attack, distorter, args.seed + epoch * 1000000 + step * 100 + attack_index
+                        )
+                        _, logits = alignmark.decode_logits_with_grad(attacked)
+                        robust_loss = robust_loss + compute_chunk_ce_loss(logits, msg)
+                    robust_loss = robust_loss / len(args.train_attack_names)
+
+                    deviation_loss = torch.mean((scale - 1.0) ** 2)
+                    # Penalize only positive amplification in perceptually exposed (low-energy) bins.
+                    exposed_amplification = F.relu(scale - 1.0) * (1.0 - masking_map)
+                    masking_loss = torch.mean(exposed_amplification**2)
+                    tv_loss = compute_total_variation_loss(scale)
+                    total = (
+                        robust_loss
+                        + args.lambda_dev * deviation_loss
+                        + args.lambda_mask * masking_loss
+                        + args.lambda_tv * tv_loss
+                    )
+                scaler.scale(total).backward()
             scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(gate.parameters(), max_norm=5.0)
             scaler.step(optimizer)

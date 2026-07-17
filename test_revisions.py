@@ -766,6 +766,24 @@ def test_masking_replacement_frame_shuffle_gpu_generator_device():  # emergency 
         assert torch.isfinite(out).all(), dtype
 
 
+def test_train_gate_supports_default_train_attacks():  # emergency patch 5
+    """train_gate()'s differentiable-attack whitelist (TRAIN_GATE_SUPPORTED_ATTACKS) had
+    drifted from --train_attacks' own default twice already: masking/replacement/
+    frame_shuffle were added to the default without updating the whitelist (immediate
+    ValueError crash running with defaults), and highpass was added as a new
+    differentiable attack without updating the whitelist either. Pin the actual argparse
+    default string against the whitelist directly so this can't silently drift a third
+    time."""
+    default_train_attacks = "noise,lowpass,resample,speechtokenizer_nq6,spectral_proxy,masking,replacement,frame_shuffle"
+    names = {a.strip() for a in default_train_attacks.split(",") if a.strip()}
+    unsupported = names - phase2_training.TRAIN_GATE_SUPPORTED_ATTACKS
+    assert not unsupported, f"default --train_attacks not covered by whitelist: {sorted(unsupported)}"
+    # highpass must be included too: it's a differentiable attack (added this session)
+    # that was previously missing from the whitelist despite having no discrete/argmax
+    # bottleneck blocking backprop, same category as lowpass/bandpass.
+    assert "highpass" in phase2_training.TRAIN_GATE_SUPPORTED_ATTACKS
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for test in tests:
