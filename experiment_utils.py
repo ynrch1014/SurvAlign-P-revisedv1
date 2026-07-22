@@ -53,7 +53,7 @@ def overlapping_attack_families(left: Sequence[str], right: Sequence[str]) -> Li
 # phase2_training.py so the two canonical pipelines cannot silently drift apart.
 INTERNAL_ATTACK_NAMES: Tuple[str, ...] = (
     "clean", "identity", "noise", "noise10db", "lowpass", "bandpass", "highpass", "resample",
-    "speechtokenizer_nq6", "speechtokenizer_nq8", "strong_speechtokenizer", "spectral_proxy",
+    "time_jitter", "speechtokenizer_nq6", "speechtokenizer_nq8", "strong_speechtokenizer", "spectral_proxy",
     "masking", "replacement", "frame_shuffle",
 )
 
@@ -74,6 +74,8 @@ def apply_internal_attack(wav, attack_name: str, distorter, seed: int):
         return distorter(wav, "highpass", cutoff_hz=300)
     if attack_name == "resample":
         return distorter(wav, "resample", down_rate=2)
+    if attack_name == "time_jitter":
+        return distorter(wav, "time_jitter", max_shift_ms=1.0, seed=seed)
     if attack_name == "speechtokenizer_nq6":
         return distorter(wav, "reconstruct", n_q=6)
     if attack_name == "speechtokenizer_nq8":
@@ -89,6 +91,26 @@ def apply_internal_attack(wav, attack_name: str, distorter, seed: int):
     if attack_name == "frame_shuffle":
         return distorter(wav, "frame_shuffle", frame_duration_ms=50, shuffle_ratio=0.2, seed=seed)
     raise ValueError(f"Unknown internal attack: {attack_name}")
+
+
+def apply_cascade_attack(wav, stages: Sequence[Tuple[str, Dict[str, Any]]], distorter, seed: Optional[int] = None):
+    """Apply multiple differentiable attacks in sequence (cascaded onto the same signal),
+    instead of each attack being applied independently to the clean candidate and averaged
+    (which is what the per-attack train_attack_names loop does). ``stages`` is an ordered
+    list of ``(attack_name, kwargs)`` pairs; each stage is applied to the *output* of the
+    previous one, going straight through ``distorter``'s own dtype dispatch (not
+    apply_internal_attack), since a cascade only ever needs the differentiable-only
+    attacks a training loop can backprop through.
+
+    Each stage gets a distinct deterministic sub-seed derived from ``seed`` (large enough
+    offset to not alias adjacent stages' own internal seeding), so the same ``seed``
+    reproduces the same cascade while different stages don't draw identical randomness.
+    """
+    result = wav
+    for index, (attack_name, kwargs) in enumerate(stages):
+        stage_seed = None if seed is None else seed + index * 1000
+        result = distorter(result, attack_name, seed=stage_seed, **kwargs)
+    return result
 
 
 def apply_eval_attack(wav, attack_name: str, distorter, seed: int, args):

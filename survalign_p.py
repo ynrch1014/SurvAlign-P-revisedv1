@@ -502,6 +502,27 @@ class DifferentiableDistortion(nn.Module):
         filtered = F.conv1d(wav_3d, kernel, padding=n_taps // 2)
         return filtered.squeeze(1) if wav.dim() == 2 else filtered
 
+    def time_jitter(self, wav, max_shift_ms=1.0, seed=None):
+        """미세한 시점 정합 오프셋으로 파형을 정수 인덱스 시프트한다. 순수 인덱싱
+        연산이라 미분 가능(그래디언트가 그대로 통과)."""
+        generator = torch.Generator(device=wav.device)
+        if seed is not None:
+            generator.manual_seed(int(seed))
+        else:
+            generator.seed()
+        max_shift_samples = int(max_shift_ms * self.sr / 1000)
+        # torch.randint(...) without device= always samples on CPU regardless of the
+        # generator's own device, colliding with a CUDA generator (see the GPU
+        # generator-device bugs already fixed in apply_masking/apply_replacement/
+        # apply_frame_shuffle) -- device=wav.device is required here from the start.
+        shift = torch.randint(
+            -max_shift_samples, max_shift_samples + 1, (1,),
+            generator=generator, device=wav.device,
+        ).item()
+        if shift == 0:
+            return wav
+        return torch.roll(wav, shifts=shift, dims=-1)
+
     def resample_distortion(self, wav, down_rate=2):
         was_2d = wav.dim() == 2
         wav_3d = wav.unsqueeze(1) if was_2d else wav
@@ -646,6 +667,8 @@ class DifferentiableDistortion(nn.Module):
             return self.apply_replacement(wav, max_ratio=kwargs.get("max_ratio", 0.1), snr_db=kwargs.get("snr_db", 0.0), seed=seed)
         if dtype == "frame_shuffle":
             return self.apply_frame_shuffle(wav, frame_duration_ms=kwargs.get("frame_duration_ms", 50), shuffle_ratio=kwargs.get("shuffle_ratio", 0.2), seed=seed)
+        if dtype == "time_jitter":
+            return self.time_jitter(wav, max_shift_ms=kwargs.get("max_shift_ms", 1.0), seed=seed)
         if dtype == "lowpass":
             return self.lowpass_filter(wav, cutoff_hz=kwargs.get("cutoff_hz", 4000))
         if dtype == "highpass":

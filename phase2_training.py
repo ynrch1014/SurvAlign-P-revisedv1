@@ -38,6 +38,7 @@ from tqdm import tqdm
 
 from experiment_utils import (
     align_audio_tensors,
+    apply_cascade_attack,
     apply_eval_attack,
     apply_internal_attack as _internal_attack,
     compute_attribution_metrics,
@@ -67,6 +68,7 @@ from survalign_p import (
     get_local_energy_masking_proxy,
     get_survival_map,
     istft_audio,
+    minmax_per_sample,
     normalize_per_sample,
     stft_audio,
 )
@@ -90,11 +92,17 @@ TRAIN_GATE_SUPPORTED_ATTACKS = frozenset({
 
 
 class SimplifiedSurvivalGate(nn.Module):
-    def __init__(self, in_channels=4, hidden_dim=16, gate_range=0.2):
+    def __init__(self, in_channels=4, hidden_dim=16, gate_range=0.2, hard_mask=False):
         super().__init__()
         if gate_range <= 0 or gate_range >= 1:
             raise ValueError("gate_range must be in (0,1)")
         self.gate_range = float(gate_range)
+        # multi-cascade-attack experiment Part D: when enabled, the guide channel
+        # (normalized Survival Map, or a random map in the control-group variant) is
+        # multiplied elementwise into the conv logits before the tanh/scale step, forcing
+        # the guide to structurally shape the output scale map rather than merely being
+        # available as one of several input channels the conv could learn to ignore.
+        self.hard_mask = bool(hard_mask)
         self.conv = nn.Sequential(
             nn.Conv2d(in_channels, hidden_dim, kernel_size=3, padding=1),
             nn.GroupNorm(num_groups=4, num_channels=hidden_dim),
@@ -107,8 +115,16 @@ class SimplifiedSurvivalGate(nn.Module):
         nn.init.zeros_(self.conv[-1].weight)
         nn.init.zeros_(self.conv[-1].bias)
 
-    def forward(self, feature_pack, residual_spec):
+    def forward(self, feature_pack, residual_spec, guide_channel_index=2):
         logits = self.conv(feature_pack).squeeze(1)
+        if self.hard_mask:
+            # Per-sample min-max to [0,1] (not the z-normalized value already sitting in
+            # feature_pack's guide channel), then rescaled to [0.5, 1.0] so a bin where the
+            # guide is exactly 0 is *attenuated*, not completely zeroed -- a hard 0 would
+            # kill gradient flow through that bin entirely and destabilize early training.
+            guide = feature_pack[:, guide_channel_index]
+            guide_norm = minmax_per_sample(guide)
+            logits = logits * (0.5 + 0.5 * guide_norm)
         scale = 1.0 + self.gate_range * torch.tanh(logits)
         return residual_spec * scale, scale
 
@@ -131,6 +147,36 @@ def _resolve_survival_map(wav, wav_wm, distorter, args, context_seed, precompute
         quantile=args.survival_quantile,
         args=args,
     )
+
+
+# Channel-ablation study (multi-cascade-attack experiment Part C): which of the Gate's 4
+# input feature_pack channels (0=clean, 1=residual, 2=guide/Survival Map, 3=masking_map)
+# are zeroed out before the Gate ever sees them. This only controls what information the
+# Gate's CNN has access to -- SimplifiedSurvivalGate.forward() still multiplies its output
+# scale against the real, unmasked `residual_spec` (see forward() above), so ablating a
+# channel never changes what the gate's output is applied to, only what it was computed
+# from.
+CHANNEL_ABLATION_MASKS = {
+    "full": frozenset(),                    # [1,2,3,4] whole thing: no masking (== proposed_gate as-is)
+    "no_guide": frozenset({2}),              # [1,2,4] control: guide/Survival Map channel zeroed
+    "no_residual": frozenset({1}),           # [1,3,4] alternative: residual channel zeroed
+    "no_residual_no_guide": frozenset({1, 2}),  # [1,4] baseline: both residual and guide zeroed
+}
+
+
+def _apply_channel_ablation(feature_pack, channel_ablation):
+    if channel_ablation not in CHANNEL_ABLATION_MASKS:
+        raise ValueError(
+            f"Unknown channel_ablation: {channel_ablation!r} "
+            f"(expected one of {sorted(CHANNEL_ABLATION_MASKS)})"
+        )
+    masked_channels = CHANNEL_ABLATION_MASKS[channel_ablation]
+    if not masked_channels:
+        return feature_pack
+    feature_pack = feature_pack.clone()
+    for channel_index in masked_channels:
+        feature_pack[:, channel_index] = 0.0
+    return feature_pack
 
 
 def build_guide_map(args, alignmark, distorter, wav, wav_wm, residual, context_seed, precomputed_survival=None):
@@ -183,6 +229,7 @@ def build_guide_map(args, alignmark, distorter, wav, wav_wm, residual, context_s
 
     guide_feature = normalize_per_sample(guide)
     feature_pack = torch.stack([clean_feature, residual_feature, guide_feature, masking_map], dim=1)
+    feature_pack = _apply_channel_ablation(feature_pack, getattr(args, "channel_ablation", "full"))
     return feature_pack, residual_spec, guide, masking_map
 
 
@@ -323,12 +370,19 @@ def _gather_cached_survival(cache, sample_ids, device, dtype):
 
 
 def train_gate(args, device, alignmark, distorter, dataset_train, dataset_val, survival_cache=None):
-    if not args.train_attack_names:
-        raise ValueError("At least one training attack is required")
-    unsupported = set(args.train_attack_names) - TRAIN_GATE_SUPPORTED_ATTACKS
-    if unsupported:
-        raise ValueError(f"Non-differentiable/unknown train attacks: {sorted(unsupported)}")
-    gate = SimplifiedSurvivalGate(in_channels=4, gate_range=args.gate_range).to(device)
+    # --train_cascade replaces the per-attack independent-loop robust_loss below with a
+    # single cascaded scenario (Time Jitter -> AWGN -> Bandpass applied in sequence to the
+    # same candidate), so args.train_attack_names is unused in that mode -- skip its
+    # validation accordingly.
+    if not getattr(args, "train_cascade", False):
+        if not args.train_attack_names:
+            raise ValueError("At least one training attack is required")
+        unsupported = set(args.train_attack_names) - TRAIN_GATE_SUPPORTED_ATTACKS
+        if unsupported:
+            raise ValueError(f"Non-differentiable/unknown train attacks: {sorted(unsupported)}")
+    gate = SimplifiedSurvivalGate(
+        in_channels=4, gate_range=args.gate_range, hard_mask=getattr(args, "hard_mask", False),
+    ).to(device)
     optimizer = optim.AdamW(gate.parameters(), lr=args.lr, weight_decay=1e-4)
     generator = torch.Generator()
     generator.manual_seed(args.seed)
@@ -394,14 +448,40 @@ def train_gate(args, device, alignmark, distorter, dataset_train, dataset_val, s
                     ).squeeze(1)
                     candidate = (wav.squeeze(1) + projected).unsqueeze(1)
 
-                    robust_loss = torch.zeros((), device=device)
-                    for attack_index, attack in enumerate(args.train_attack_names):
-                        attacked = _internal_attack(
-                            candidate, attack, distorter, args.seed + epoch * 1000000 + step * 100 + attack_index
+                    if getattr(args, "train_cascade", False):
+                        # Multi-cascaded-attack pilot: apply Time Jitter -> AWGN -> Bandpass
+                        # in sequence to the *same* candidate (not independently averaged),
+                        # matching a realistic multi-attack pipeline. AWGN SNR and jitter
+                        # magnitude are randomized per batch (team request); the sampling
+                        # generator is created with device=device and every random draw
+                        # explicitly passes device=device too, to not repeat the GPU
+                        # generator-device bug already fixed elsewhere (patch 3).
+                        cascade_generator = torch.Generator(device=device)
+                        cascade_generator.manual_seed(stable_int_hash(args.seed, "cascade", epoch, step))
+                        snr_db = float(
+                            8.0 + 4.0 * torch.rand(1, generator=cascade_generator, device=device).item()
                         )
+                        jitter_ms = float(
+                            0.5 + 1.0 * torch.rand(1, generator=cascade_generator, device=device).item()
+                        )
+                        stages = [
+                            ("time_jitter", dict(max_shift_ms=jitter_ms)),
+                            ("noise", dict(snr_db=snr_db)),
+                            ("bandpass", dict(low_hz=200, high_hz=3500)),
+                        ]
+                        cascade_seed = args.seed + epoch * 1000000 + step * 100
+                        attacked = apply_cascade_attack(candidate, stages, distorter, seed=cascade_seed)
                         _, logits = alignmark.decode_logits_with_grad(attacked)
-                        robust_loss = robust_loss + compute_chunk_ce_loss(logits, msg)
-                    robust_loss = robust_loss / len(args.train_attack_names)
+                        robust_loss = compute_chunk_ce_loss(logits, msg)
+                    else:
+                        robust_loss = torch.zeros((), device=device)
+                        for attack_index, attack in enumerate(args.train_attack_names):
+                            attacked = _internal_attack(
+                                candidate, attack, distorter, args.seed + epoch * 1000000 + step * 100 + attack_index
+                            )
+                            _, logits = alignmark.decode_logits_with_grad(attacked)
+                            robust_loss = robust_loss + compute_chunk_ce_loss(logits, msg)
+                        robust_loss = robust_loss / len(args.train_attack_names)
 
                     deviation_loss = torch.mean((scale - 1.0) ** 2)
                     # Penalize only positive amplification in perceptually exposed (low-energy) bins.
@@ -788,6 +868,26 @@ def main():
     parser.add_argument("--survival_attacks", default="speechtokenizer_nq6,speechtokenizer_nq8,spectral_proxy")
     parser.add_argument("--utility_attacks", default="speechtokenizer_nq6,strong_speechtokenizer")
     parser.add_argument("--train_attacks", default="noise,lowpass,resample,speechtokenizer_nq6,spectral_proxy,masking,replacement,frame_shuffle")
+    parser.add_argument("--train_cascade", action="store_true",
+                        help="Replace the per-attack independent-loop robust_loss with a single "
+                             "cascaded scenario (Time Jitter -> AWGN -> Bandpass applied in "
+                             "sequence to the same candidate). --train_attacks is ignored when set.")
+    parser.add_argument("--channel_ablation", default="full",
+                        choices=sorted(CHANNEL_ABLATION_MASKS),
+                        help="Zero out one or more of the Gate's 4 input feature_pack channels "
+                             "(clean/residual/guide/masking_map) before the Gate sees them, to "
+                             "isolate the Survival Map (guide) channel's contribution. Only "
+                             "affects the Gate's input; its output scale is still applied to "
+                             "the real, unmasked residual.")
+    parser.add_argument("--hard_mask", action="store_true",
+                        help="Structurally multiply the Gate's conv logits by the guide "
+                             "channel (normalized to [0.5, 1.0], never fully zeroed) before "
+                             "the tanh/scale step, instead of leaving it as just one of "
+                             "several input channels the conv could learn to ignore. Combine "
+                             "with --mode random_gate (instead of proposed_gate) to get the "
+                             "random-map hard-masking control group, which isolates the "
+                             "effect of the *mechanism* from the value of the Survival Map's "
+                             "*information*.")
     parser.add_argument("--validation_attacks", default="bandpass,speechtokenizer_nq8")
     parser.add_argument("--test_attacks", default="clean,strong_speechtokenizer")
     parser.add_argument("--clearervoice_command", default="")
@@ -933,7 +1033,9 @@ def main():
                 raise FileNotFoundError(f"Gate checkpoint not found: {checkpoint_path}")
             checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
             validate_checkpoint_config(args, checkpoint.get("config", {}))
-            gate = SimplifiedSurvivalGate(in_channels=4, gate_range=args.gate_range).to(device)
+            gate = SimplifiedSurvivalGate(
+                in_channels=4, gate_range=args.gate_range, hard_mask=getattr(args, "hard_mask", False),
+            ).to(device)
             state = checkpoint.get("model_state_dict", checkpoint)
             gate.load_state_dict(state, strict=True)
         else:

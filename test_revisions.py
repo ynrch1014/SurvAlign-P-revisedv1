@@ -19,6 +19,7 @@ import phase2_training
 from experiment_utils import (
     heldout_codec_of, survival_heldout_leakage, HELDOUT_CODECS, project_residual_l2,
     INTERNAL_ATTACK_NAMES, apply_internal_attack, apply_eval_attack, attack_family,
+    apply_cascade_attack, stable_int_hash,
 )
 from phase1_attribution import (
     _target_norm_reference, paired_statistics, holm_bonferroni, cliffs_delta,
@@ -236,8 +237,8 @@ def test_phase1_phase2_share_attack_dispatch():  # refactor: dedup phase1/phase2
     # Attack name coverage must match the original hard-coded sets from both files.
     expected_internal = {
         "clean", "identity", "noise", "noise10db", "lowpass", "bandpass", "highpass", "resample",
-        "speechtokenizer_nq6", "speechtokenizer_nq8", "strong_speechtokenizer", "spectral_proxy",
-        "masking", "replacement", "frame_shuffle",
+        "time_jitter", "speechtokenizer_nq6", "speechtokenizer_nq8", "strong_speechtokenizer",
+        "spectral_proxy", "masking", "replacement", "frame_shuffle",
     }
     assert set(INTERNAL_ATTACK_NAMES) == expected_internal
 
@@ -560,6 +561,37 @@ def test_highpass_dispatch_wiring():  # Part A-3: highpass registered in the sha
     assert torch.equal(out_via_internal, out_via_eval)
 
 
+def test_time_jitter():  # multi-cascade-attack experiment Part A
+    """time_jitter must (1) preserve shape, (2) actually be an integer torch.roll of the
+    input within +-max_shift_samples (not silently a no-op or something else), (3) be
+    wired into INTERNAL_ATTACK_NAMES/apply_internal_attack/apply_eval_attack identically,
+    and (4) pass gradients through unchanged (pure indexing op, no learnable/lossy step)."""
+    dist = DifferentiableDistortion(sr=16000, vae=None)
+    wav = torch.arange(1600, dtype=torch.float32).unsqueeze(0)  # (1, T) monotonic ramp
+
+    out = dist(wav, "time_jitter", max_shift_ms=1.0, seed=7)
+    assert out.shape == wav.shape
+    assert torch.isfinite(out).all()
+
+    max_shift_samples = int(1.0 * 16000 / 1000)
+    assert any(
+        torch.equal(out, torch.roll(wav, shifts=shift, dims=-1))
+        for shift in range(-max_shift_samples, max_shift_samples + 1)
+    ), "time_jitter output is not an integer roll of the input within max_shift_ms"
+
+    assert "time_jitter" in INTERNAL_ATTACK_NAMES
+    assert attack_family("time_jitter") == "time_jitter"  # its own family, not merged with anything
+    wav_3d = wav.unsqueeze(1)
+    out_via_internal = apply_internal_attack(wav_3d, "time_jitter", dist, seed=7)
+    out_via_eval = apply_eval_attack(wav_3d, "time_jitter", dist, seed=7, args=_FakeArgs())
+    assert torch.equal(out_via_internal, out_via_eval)
+
+    wav_var = wav.clone().requires_grad_(True)
+    dist(wav_var, "time_jitter", max_shift_ms=1.0, seed=3).sum().backward()
+    assert wav_var.grad is not None
+    assert torch.allclose(wav_var.grad, torch.ones_like(wav_var))
+
+
 def test_ffmpeg_aac_dispatch_wiring():  # Part A-3: apply_eval_attack routes ffmpeg_aac correctly
     """Verifies the wiring itself (attack name -> ffmpeg_aac_roundtrip_batch, with the right
     sample_rate/bitrate) via a spy, independent of whether a real ffmpeg is on PATH --
@@ -748,7 +780,9 @@ def test_masking_replacement_frame_shuffle_gpu_generator_device():  # emergency 
     apply_masking/apply_replacement/apply_frame_shuffle actually ran on GPU (they were only
     added to survival_attacks this session; the bug existed unnoticed before that). Skipped
     on CPU-only machines since the bug is CUDA-specific -- run this on a GPU box (e.g.
-    RunPod) to actually exercise the fix."""
+    RunPod) to actually exercise the fix. time_jitter (added for the cascade-attack
+    experiment) was written with device=wav.device from the start to avoid repeating this
+    same bug a fourth time; included here to confirm that."""
     if not torch.cuda.is_available():
         print("  (skipped: no CUDA device available)")
         return
@@ -759,6 +793,7 @@ def test_masking_replacement_frame_shuffle_gpu_generator_device():  # emergency 
         ("masking", dict(max_ratio=0.1, seed=1)),
         ("replacement", dict(max_ratio=0.1, snr_db=0.0, seed=2)),
         ("frame_shuffle", dict(frame_duration_ms=50, shuffle_ratio=0.2, seed=3)),
+        ("time_jitter", dict(max_shift_ms=1.0, seed=4)),
     ]:
         out = dist(wav, dtype, **kwargs)
         assert out.shape == wav.shape, dtype
@@ -815,6 +850,264 @@ def test_build_guide_map_survival_branches_share_args_threading():  # emergency 
             assert feature_pack.shape[0] == wav.shape[0], mode
     finally:
         external_attacks.ffmpeg_mp3_roundtrip_batch = original_ffmpeg_mp3
+
+
+def test_apply_cascade_attack_sequential_and_reproducible():  # multi-cascade-attack experiment Part B
+    """apply_cascade_attack must chain stages onto each other's OUTPUT (not apply each
+    stage independently to the original input and average, which is what the existing
+    train_attack_names loop does) -- that's the entire point of a cascade. Also pins:
+    reproducibility for a fixed seed, variation across seeds, and end-to-end
+    differentiability (all three stages -- time_jitter/noise/bandpass -- are
+    differentiable, so the cascade as a whole must be too)."""
+    dist = DifferentiableDistortion(sr=16000, vae=None)
+    torch.manual_seed(0)
+    wav = torch.randn(2, 1, 3200) * 0.05
+
+    stages = [
+        ("time_jitter", dict(max_shift_ms=1.0)),
+        ("noise", dict(snr_db=10.0)),
+        ("bandpass", dict(low_hz=200, high_hz=3500)),
+    ]
+
+    out = apply_cascade_attack(wav, stages, dist, seed=42)
+    assert out.shape == wav.shape
+    assert torch.isfinite(out).all()
+
+    # Must equal manually chaining the three stages onto each other's output, each with
+    # its own per-stage sub-seed (seed + index*1000).
+    stage1 = dist(wav, "time_jitter", max_shift_ms=1.0, seed=42 + 0 * 1000)
+    stage2 = dist(stage1, "noise", snr_db=10.0, seed=42 + 1 * 1000)
+    stage3 = dist(stage2, "bandpass", low_hz=200, high_hz=3500, seed=42 + 2 * 1000)
+    assert torch.equal(out, stage3)
+
+    # Must NOT match applying a stage independently to the original wav (that would mean
+    # the cascade collapsed back into the old independent-attack pattern).
+    independent_noise = dist(wav, "noise", snr_db=10.0, seed=42 + 1000)
+    assert not torch.equal(out, independent_noise)
+
+    # Reproducible for a fixed seed; varies with a different seed.
+    assert torch.equal(out, apply_cascade_attack(wav, stages, dist, seed=42))
+    assert not torch.equal(out, apply_cascade_attack(wav, stages, dist, seed=43))
+
+    # Differentiable end-to-end (gradient must exist and be finite).
+    wav_var = wav.clone().requires_grad_(True)
+    apply_cascade_attack(wav_var, stages, dist, seed=7).sum().backward()
+    assert wav_var.grad is not None
+    assert torch.isfinite(wav_var.grad).all()
+
+
+def test_train_cascade_per_batch_randomization_and_gpu_device_safety():  # Part B
+    """The --train_cascade branch in train_gate() samples AWGN SNR (8-12dB) and jitter
+    magnitude (0.5-1.5ms) freshly per batch (team request), via a torch.Generator created
+    with device=device and device=device passed explicitly on every draw -- this exercises
+    that exact sampling snippet directly (not the full train_gate(), which needs a real
+    AlignMark model) to confirm the range is respected and the value actually varies
+    across steps, and (on a GPU box) that it doesn't repeat the generator-device bug
+    already fixed elsewhere (patch 3: torch.randint ignores the generator's device unless
+    device= is passed; this uses torch.rand the same way, so pin it too)."""
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    def sample_snr_and_jitter(step):
+        generator = torch.Generator(device=device)
+        generator.manual_seed(stable_int_hash(42, "cascade", 1, step))
+        snr_db = float(8.0 + 4.0 * torch.rand(1, generator=generator, device=device).item())
+        jitter_ms = float(0.5 + 1.0 * torch.rand(1, generator=generator, device=device).item())
+        return snr_db, jitter_ms
+
+    seen = set()
+    for step in range(5):
+        snr_db, jitter_ms = sample_snr_and_jitter(step)
+        assert 8.0 <= snr_db <= 12.0, snr_db
+        assert 0.5 <= jitter_ms <= 1.5, jitter_ms
+        seen.add((round(snr_db, 6), round(jitter_ms, 6)))
+    assert len(seen) > 1, "per-batch cascade randomization did not vary across steps"
+
+
+def test_channel_ablation_masks_correct_channels():  # multi-cascade-attack experiment Part C
+    """Each --channel_ablation mode must zero exactly its documented channels of the
+    Gate's 4-channel feature_pack (0=clean, 1=residual, 2=guide/Survival Map,
+    3=masking_map) and leave every other channel byte-identical to the unablated ("full")
+    baseline -- not recomputed differently, just zeroed."""
+    torch.manual_seed(0)
+    wav = torch.randn(2, 1, 3200) * 0.05
+    wav_wm = wav + torch.randn_like(wav) * 1e-3
+    dist = DifferentiableDistortion(sr=16000, vae=None)
+    args = _FakeArgs(
+        mode="proposed_gate", map_type="survival",
+        survival_attack_names=["lowpass"], survival_quantile=0.25, channel_ablation="full",
+    )
+
+    baseline_pack, _, _, _ = phase2_training.build_guide_map(
+        args, alignmark=None, distorter=dist, wav=wav, wav_wm=wav_wm,
+        residual=torch.zeros_like(wav), context_seed=7,
+    )
+
+    expectations = {
+        "no_guide": {2},
+        "no_residual": {1},
+        "no_residual_no_guide": {1, 2},
+    }
+    for mode, masked_channels in expectations.items():
+        args.channel_ablation = mode
+        pack, _, _, _ = phase2_training.build_guide_map(
+            args, alignmark=None, distorter=dist, wav=wav, wav_wm=wav_wm,
+            residual=torch.zeros_like(wav), context_seed=7,
+        )
+        for ch in range(4):
+            if ch in masked_channels:
+                assert torch.equal(pack[:, ch], torch.zeros_like(pack[:, ch])), (mode, ch)
+            else:
+                assert torch.equal(pack[:, ch], baseline_pack[:, ch]), (mode, ch)
+
+
+def test_channel_ablation_full_is_backward_compatible():  # Part C
+    """channel_ablation='full' (the default -- and what an older `args` object with no
+    channel_ablation attribute at all falls back to via getattr) must be a true no-op.
+    Also confirms residual_spec/guide/masking_map (everything build_guide_map returns
+    besides feature_pack) are completely untouched by channel ablation, since
+    SimplifiedSurvivalGate.forward() multiplies its output scale against the real,
+    unmasked residual_spec regardless of what the Gate's input saw."""
+    torch.manual_seed(0)
+    wav = torch.randn(2, 1, 3200) * 0.05
+    wav_wm = wav + torch.randn_like(wav) * 1e-3
+    dist = DifferentiableDistortion(sr=16000, vae=None)
+    args = _FakeArgs(
+        mode="proposed_gate", map_type="survival",
+        survival_attack_names=["lowpass"], survival_quantile=0.25,
+    )
+    assert not hasattr(args, "channel_ablation")
+    pack_no_attr, residual_spec_a, guide_a, masking_map_a = phase2_training.build_guide_map(
+        args, alignmark=None, distorter=dist, wav=wav, wav_wm=wav_wm,
+        residual=torch.zeros_like(wav), context_seed=7,
+    )
+    args.channel_ablation = "full"
+    pack_explicit_full, residual_spec_b, guide_b, masking_map_b = phase2_training.build_guide_map(
+        args, alignmark=None, distorter=dist, wav=wav, wav_wm=wav_wm,
+        residual=torch.zeros_like(wav), context_seed=7,
+    )
+    assert torch.equal(pack_no_attr, pack_explicit_full)
+    assert torch.equal(residual_spec_a, residual_spec_b)
+    assert torch.equal(guide_a, guide_b)
+    assert torch.equal(masking_map_a, masking_map_b)
+
+
+def test_channel_ablation_invalid_value_raises():  # Part C
+    dist = DifferentiableDistortion(sr=16000, vae=None)
+    wav = torch.randn(1, 1, 1600) * 0.02
+    args = _FakeArgs(
+        mode="proposed_gate", map_type="survival", survival_attack_names=["lowpass"],
+        survival_quantile=0.25, channel_ablation="not_a_real_mode",
+    )
+    try:
+        phase2_training.build_guide_map(
+            args, alignmark=None, distorter=dist, wav=wav, wav_wm=wav,
+            residual=torch.zeros_like(wav), context_seed=0,
+        )
+        assert False, "expected ValueError for unknown channel_ablation"
+    except ValueError:
+        pass
+
+
+def test_hard_mask_output_depends_on_guide_channel():  # multi-cascade-attack experiment Part D
+    """hard_mask=True's whole purpose is to force the Gate's output scale to structurally
+    depend on the guide channel's content -- this is the core check that hard masking
+    actually intervenes, rather than merely sitting as one of several input channels the
+    conv is free to ignore. Two otherwise-identical feature_packs differing only in the
+    guide channel must produce different output scales, with identical (untrained,
+    randomly-initialized) conv weights."""
+    torch.manual_seed(0)
+    gate = phase2_training.SimplifiedSurvivalGate(in_channels=4, gate_range=0.2, hard_mask=True)
+    gate.eval()
+    # conv[-1] is zero-initialized by construction (so the untrained gate starts as an
+    # identity, scale==1 everywhere) -- that also means conv(feature_pack) is identically
+    # 0 regardless of input until some training has happened, which would make guide
+    # content invisible here (0 * anything == 0). Force a non-zero constant conv output so
+    # the guide multiplier's effect is actually observable, matching a post-training state.
+    with torch.no_grad():
+        gate.conv[-1].bias.fill_(1.0)
+    batch, freq, time = 2, 8, 10
+    clean = torch.randn(batch, freq, time)
+    residual_feat = torch.randn(batch, freq, time)
+    masking_map = torch.randn(batch, freq, time)
+    residual_spec = torch.randn(batch, freq, time, dtype=torch.cfloat)
+
+    guide_a = torch.zeros(batch, freq, time)
+    guide_a[:, : freq // 2] = 1.0
+    guide_b = 1.0 - guide_a
+
+    feature_pack_a = torch.stack([clean, residual_feat, guide_a, masking_map], dim=1)
+    feature_pack_b = torch.stack([clean, residual_feat, guide_b, masking_map], dim=1)
+
+    with torch.no_grad():
+        _, scale_a = gate(feature_pack_a, residual_spec)
+        _, scale_b = gate(feature_pack_b, residual_spec)
+
+    assert not torch.allclose(scale_a, scale_b), "hard_mask output did not change with guide content"
+
+
+def test_hard_mask_never_fully_zeroes_gradient_path():  # Part D
+    """A constant (all-same-value) guide channel -- e.g. every bin scored 0 by the
+    Survival Map -- must not collapse the multiplier to exactly 0. A hard 0 would kill
+    gradient flow through those bins entirely and destabilize early training (the design
+    note's explicit concern); minmax_per_sample's +eps guard keeps a constant channel's
+    guide_norm well-defined (0), so hard_mask's "0.5 + 0.5*guide_norm" floor still leaves
+    a 0.5x multiplier instead of 0x."""
+    torch.manual_seed(0)
+    gate = phase2_training.SimplifiedSurvivalGate(in_channels=4, gate_range=0.2, hard_mask=True)
+    with torch.no_grad():
+        gate.conv[-1].bias.fill_(1.0)  # force non-zero conv output so 0.5x vs 0x is distinguishable
+    batch, freq, time = 1, 4, 4
+    feature_pack = torch.randn(batch, 4, freq, time)
+    feature_pack[:, 2] = 0.0  # constant (all-zero) guide channel
+    residual_spec = torch.ones(batch, freq, time, dtype=torch.cfloat)
+    with torch.no_grad():
+        _, scale = gate(feature_pack, residual_spec)
+    assert torch.isfinite(scale).all()
+    # If the multiplier were a hard 0 (bug), logits would be zeroed regardless of the
+    # conv's actual output, giving scale == 1.0 everywhere. It must not.
+    assert not torch.allclose(scale, torch.ones_like(scale))
+
+
+def test_hard_mask_default_false_is_backward_compatible():  # Part D
+    """hard_mask defaults to False and must reproduce the exact pre-Part-D forward
+    behavior: scale = 1 + gate_range*tanh(conv(feature_pack)), independent of the guide
+    channel's content."""
+    torch.manual_seed(0)
+    gate = phase2_training.SimplifiedSurvivalGate(in_channels=4, gate_range=0.2)
+    assert gate.hard_mask is False
+    batch, freq, time = 2, 8, 10
+    feature_pack = torch.randn(batch, 4, freq, time)
+    residual_spec = torch.randn(batch, freq, time, dtype=torch.cfloat)
+    with torch.no_grad():
+        residual_out, scale = gate(feature_pack, residual_spec)
+        expected_logits = gate.conv(feature_pack).squeeze(1)
+        expected_scale = 1.0 + gate.gate_range * torch.tanh(expected_logits)
+    assert torch.allclose(scale, expected_scale)
+    assert torch.allclose(residual_out, residual_spec * expected_scale)
+
+
+def test_random_gate_mode_provides_random_hard_mask_control_group():  # Part D
+    """--mode random_gate + --hard_mask is the required random-map control group (per the
+    task doc) that isolates hard-masking's *mechanism* effect from the Survival Map's
+    *information* value: build_guide_map's random_gate branch already fills the guide
+    channel with torch.rand(...), so combining it with --hard_mask needs no new code path.
+    Confirm the guide channel is genuinely random and varies across calls (different
+    context_seed), i.e. it is NOT the real Survival Map."""
+    torch.manual_seed(0)
+    wav = torch.randn(2, 1, 3200) * 0.05
+    dist = DifferentiableDistortion(sr=16000, vae=None)
+    args = _FakeArgs(mode="random_gate", channel_ablation="full")
+
+    pack_a, _, guide_a, _ = phase2_training.build_guide_map(
+        args, alignmark=None, distorter=dist, wav=wav, wav_wm=wav.clone(),
+        residual=torch.zeros_like(wav), context_seed=1,
+    )
+    pack_b, _, guide_b, _ = phase2_training.build_guide_map(
+        args, alignmark=None, distorter=dist, wav=wav, wav_wm=wav.clone(),
+        residual=torch.zeros_like(wav), context_seed=2,
+    )
+    assert not torch.equal(guide_a, guide_b), "random_gate guide did not vary across context_seed"
+    assert not torch.equal(pack_a[:, 2], pack_b[:, 2])
 
 
 def main():
