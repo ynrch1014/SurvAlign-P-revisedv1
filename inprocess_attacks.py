@@ -103,16 +103,12 @@ def _get_facodec_model(device) -> Tuple[object, object]:
 
 
 def prewarm(device) -> None:
-    """Load the Encodec, Vocos, and FACodec weights ahead of time.
-
-    Calling this before the attack loop moves the (one-time) model-load latency out of
-    the timed region; without it, the first `encodec`/`vocos`/`facodec` attack call in a
-    run pays that cost instead. Safe to call more than once (a no-op after the first call
-    per device).
-    """
-    _get_encodec_model(device)
-    _get_vocos_model(device)
-    _get_facodec_model(device)
+    """Load the Encodec, Vocos, and FACodec weights ahead of time."""
+    for loader in (_get_encodec_model, _get_vocos_model, _get_facodec_model):
+        try:
+            loader(device)
+        except Exception:
+            pass
 
 
 def _split_batch_channel(wav: torch.Tensor) -> Tuple[torch.Tensor, bool]:

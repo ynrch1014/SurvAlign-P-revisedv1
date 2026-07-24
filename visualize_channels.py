@@ -167,7 +167,7 @@ def main():
     parser.add_argument("--survival_attacks", default=DEFAULT_SURVIVAL_ATTACKS)
     parser.add_argument("--survival_quantile", type=float, default=0.5)
     parser.add_argument("--top_fraction", type=float, default=0.2,
-                        help="겹침 비교 패널에서 '상위 몇 %'를 비교할지 (기본 상위 20%).")
+                        help="겹침 비교 패널에서 '상위 몇 %%'를 비교할지 (기본 상위 20%%).")
     parser.add_argument("--scatter_points", type=int, default=3000)
     parser.add_argument("--mp3_bitrate", default="64k")
     parser.add_argument("--encodec_command", default="")
