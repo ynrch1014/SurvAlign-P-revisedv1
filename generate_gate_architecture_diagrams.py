@@ -138,18 +138,25 @@ def create_diagram(
     ax.add_patch(cnn_header)
     ax.text(620, 736, "Lightweight 2D CNN Gate", color="white", fontsize=12, fontweight="bold", ha="center", va="center")
 
-    # 3 Conv blocks
-    conv_xs = [450, 560, 670]
+    # 3 Conv blocks matching PyTorch SimplifiedSurvivalGate
+    conv_xs = [445, 560, 675]
+    block_labels = [
+        ("Conv 3x3", "GN(4) + GELU", "16 ch"),
+        ("Conv 3x3", "GN(4) + GELU", "16 ch"),
+        ("Conv 3x3", "Zero-Init", "1 ch")
+    ]
     for c_idx, cx in enumerate(conv_xs):
         c_rect = patches.FancyBboxPatch(
-            (cx, 510), 90, 150, boxstyle="round,pad=4",
+            (cx, 510), 100, 150, boxstyle="round,pad=4",
             facecolor="#ccfbf1", edgecolor=c_teal, linewidth=1.5
         )
         ax.add_patch(c_rect)
-        ax.text(cx + 45, 615, f"Conv 3x3\n{'+ ReLU' if c_idx < 2 else ''}", color=c_dark, fontsize=9.5, fontweight="bold", ha="center", va="center")
-        ax.text(cx + 45, 545, "16 ch" if c_idx < 2 else "1 ch", color=c_teal, fontsize=8.5, ha="center", va="center")
+        l_name, l_sub, l_ch = block_labels[c_idx]
+        ax.text(cx + 50, 620, l_name, color=c_dark, fontsize=9.5, fontweight="bold", ha="center", va="center")
+        ax.text(cx + 50, 580, l_sub, color=c_teal, fontsize=8.5, fontweight="bold", ha="center", va="center")
+        ax.text(cx + 50, 540, l_ch, color=c_dark, fontsize=8.5, ha="center", va="center")
         if c_idx < 2:
-            ax.annotate("", xy=(cx + 105, 585), xytext=(cx + 90, 585),
+            ax.annotate("", xy=(cx + 115, 585), xytext=(cx + 100, 585),
                         arrowprops=dict(arrowstyle="->", color=c_teal, lw=2))
 
     ax.text(620, 465, "3 layers, 16 hidden channels (O(1) Params)", color=c_teal, fontsize=9.5, fontweight="bold", ha="center", va="center")
