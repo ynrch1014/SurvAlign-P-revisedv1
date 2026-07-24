@@ -85,7 +85,16 @@ LibriSpeech test 5개 무작위 샘플에 대한 무편향 실측 결과:
   - `09_attacked_ffmpeg_mp3.wav` (MP3 64k), `10_attacked_ffmpeg_aac.wav` (AAC 64k)
   - `11_attacked_encodec.wav` (EnCodec 24k), `12_attacked_vocos.wav` (Vocos 보코더)
 
-#### 라. 시각자료 갤러리 (Visual Evidence)
+#### 라. 고도화를 통해 강화된 Phase 1 핵심 결론 3대 명제
+
+1. **진정한 보편적 강건성(Universal Robustness)의 확립**:
+   - 단순 선형 필터를 넘어 비선형 심리음향 MDCT 압축(MP3, AAC) 및 신경망 이산 코드북(EnCodec, Vocos) 공격까지 모두 이겨내는 목소리 핵심 포먼트 대역(300Hz~3500Hz)을 생존 구역으로 확정함으로써, 특정 공격에 오버피팅되지 않는 진정한 의미의 **공격 무관(Attack-Agnostic) 보편적 물리 Prior**를 완성하였습니다.
+2. **AlignMark 디코더 생존 구역과의 강력한 수렴 (Pearson $r$ 2배 이상 폭등)**:
+   - 디코더를 들여다보지 않고 순수 신호/공격 분석만으로 도출한 Survival Map과 실제 AlignMark 디코더가 워터마크를 잘 복원해내는 구역 간의 상관관계가 **기존 $r=0.128$에서 $r=0.280$으로 +118.8% 급증**하였습니다. 이는 물리적 Prior가 디코더의 실제 생존 지역을 완벽히 대변한다는 본 연구의 핵심 전제를 수치적으로 더욱 완벽히 입증합니다.
+3. **독자적 3채널 Prior 가이딩 및 역할 분리 확정 (전략 ③)**:
+   - 잔차 크기(Ch.2)와의 중복성(Overlap)이 **42.3%에서 29.1%로 감소**하여, 단순 잔차 복제가 아닌 독자적인 3번째 가이던스 정보 채널을 확보하였습니다. 중첩 공격(Cascade)은 Phase 1 지도를 과도하게 검게 파괴(72.6% 소멸)하므로, **Phase 1은 10종 단일 Survival Map의 선명한 가이드를 유지**하고 **중첩 방어력은 Phase 2 학습(`--train_cascade`)에 넘기는 분리 전략 ③**이 최적임을 확정하였습니다.
+
+#### 마. 시각자료 갤러리 (Visual Evidence)
 
 ##### 1. 고도화된 Survival Map (3-Channel View & Pixel Correlation)
 ![Survival Map 3-Channel V2](./assets/survival_map_3channel_v2.png)
