@@ -134,9 +134,13 @@ graph TD
         
         H2 --> I2{"Energy Projection<br>L2 Equalization"}
         I2 --> J2["Watermarked Audio X_w<br>X_w = X + iSTFT(R_surv_proj)<br>(Dim: 1 x T_audio)"]
-        
         J2 --> K2["Held-out Attacks<br>FACodec, MP3"]
         K2 --> L2["Message Decoding & Metric Eval"]
+    end
+```
+
+---
+
 ### 4.2. Survival Gate 상세 아키텍처 및 E1~E6 실험 시나리오 다이어그램 갤러리
 
 본 연구에서 개발한 Survival Gate는 기존 인코더(AlignMark VAE)가 출력한 원본 잔차($r_0$)를 파괴하거나 새로 만들지 않고, **4-채널 물리 입력 스펙트럼 정보**를 바탕으로 동일한 에너지 예산($\|r_{g}\|_2 \le \|r_0\|_2$) 내에서 **미세 잔차 재배치(Residual Redistribution)**를 수행하는 경량 2D CNN 모듈($\mathcal{O}(1)$ 파라미터)입니다.
