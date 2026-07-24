@@ -85,6 +85,19 @@ LibriSpeech test 5개 무작위 샘플에 대한 무편향 실측 결과:
   - `09_attacked_ffmpeg_mp3.wav` (MP3 64k), `10_attacked_ffmpeg_aac.wav` (AAC 64k)
   - `11_attacked_encodec.wav` (EnCodec 24k), `12_attacked_vocos.wav` (Vocos 보코더)
 
+#### 라. 시각자료 갤러리 (Visual Evidence)
+
+##### 1. 고도화된 Survival Map (3-Channel View & Pixel Correlation)
+![Survival Map 3-Channel V2](./assets/survival_map_3channel_v2.png)
+*(10종 공격(신경망 코덱 EnCodec/Vocos, 실제 MP3/AAC 64k 포함)과 $Q=0.25$ 하한 기준 반영 결과. 피어슨 상관계수가 0.128에서 0.280으로 2배 이상 상승함)*
+
+##### 2. 10종 공격별 스펙트로그램 파괴 양상 그리드
+![10-Attack Spectrogram Grid](./assets/per_attack_spectrogram_grid.png)
+
+##### 3. 단일 공격(Single) vs 중첩 공격(Cascade) Survival Map 반응 비교
+![Single vs Cascade Comparison](./assets/cascade_comparison.png)
+*(중첩 공격은 평균 생존값을 0.273에서 0.161로 41% 감소시켜 맵을 지나치게 보수적으로 만듦. 따라서 Survival Map은 단일 10종 맵을 유지하고, Phase 2 학습 시 `--train_cascade` 옵션으로 중첩 강건성을 학습하는 전략 ③을 채택함)*
+
 ---
 
 ## 4. 아키텍처 및 논리적 흐름 (Architecture Flow)
