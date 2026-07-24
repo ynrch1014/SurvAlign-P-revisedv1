@@ -107,6 +107,10 @@ LibriSpeech test 5개 무작위 샘플에 대한 무편향 실측 결과:
 ![Single vs Cascade Comparison](./assets/cascade_comparison.png)
 *(중첩 공격은 평균 생존값을 0.273에서 0.161로 41% 감소시켜 맵을 지나치게 보수적으로 만듦. 따라서 Survival Map은 단일 10종 맵을 유지하고, Phase 2 학습 시 `--train_cascade` 옵션으로 중첩 강건성을 학습하는 전략 ③을 채택함)*
 
+##### 4. 전체 4-채널 입력 피처 팩 (4-Channel Feature Pack & Channel 4 Analysis)
+![4-Channel Feature Pack](./assets/feature_pack_4channel.png)
+*(Phase 2 Gating Network에 전달되는 전체 4-채널 피처 팩 구조: **Ch 1** 원본 스펙트로그램, **Ch 2** 워터마크 잔차, **Ch 3** Physical Survival Map(공격 생존 Prior), **Ch 4** Local Energy Masking Proxy(심리음향 VAD/로컬 에너지 맵))*
+
 ---
 
 ## 4. 아키텍처 및 논리적 흐름 (Architecture Flow)

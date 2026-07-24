@@ -98,44 +98,52 @@ def visualize_one(args, alignmark, distorter, wav, msg, metadata, device, out_di
     clean_channel = feature_pack[0, 0].detach().cpu().numpy()
     residual_channel = feature_pack[0, 1].detach().cpu().numpy()
     survival_channel = guide[0].detach().cpu().numpy()
+    masking_channel = masking_map[0].detach().cpu().numpy()
 
     residual_db = to_db(np.abs(residual_spec[0].detach().cpu().numpy()))
 
     correlation = valid_correlations(residual_channel.reshape(-1), survival_channel.reshape(-1))
     pearson, spearman = correlation if correlation is not None else (float("nan"), float("nan"))
 
-    fig, axes = plt.subplots(2, 3, figsize=(16, 9))
+    fig, axes = plt.subplots(2, 4, figsize=(20, 9))
 
     im0 = axes[0, 0].imshow(clean_channel, aspect="auto", origin="lower", cmap="magma")
-    axes[0, 0].set_title("Original Spectrogram (Channel 1)")
+    axes[0, 0].set_title("Channel 1: Original Spectrogram")
     fig.colorbar(im0, ax=axes[0, 0], fraction=0.046)
 
     im1 = axes[0, 1].imshow(residual_channel, aspect="auto", origin="lower", cmap="magma")
-    axes[0, 1].set_title("Watermark Residual (Channel 2)")
+    axes[0, 1].set_title("Channel 2: Watermark Residual")
     fig.colorbar(im1, ax=axes[0, 1], fraction=0.046)
 
     im2 = axes[0, 2].imshow(survival_channel, aspect="auto", origin="lower", cmap="magma", vmin=0.0, vmax=1.0)
-    axes[0, 2].set_title("Survival Map (Channel 3)")
+    axes[0, 2].set_title("Channel 3: Survival Map (Prior)")
     fig.colorbar(im2, ax=axes[0, 2], fraction=0.046)
+
+    im3 = axes[0, 3].imshow(masking_channel, aspect="auto", origin="lower", cmap="magma", vmin=0.0, vmax=1.0)
+    axes[0, 3].set_title("Channel 4: Local Energy Masking Proxy")
+    fig.colorbar(im3, ax=axes[0, 3], fraction=0.046)
 
     axes[1, 0].imshow(residual_db, aspect="auto", origin="lower", cmap="gray")
     axes[1, 0].imshow(survival_channel, aspect="auto", origin="lower", cmap="magma", alpha=0.5, vmin=0.0, vmax=1.0)
-    axes[1, 0].set_title("Survival Map (magma) overlaid on Residual (gray)")
+    axes[1, 0].set_title("Ch 3 (magma) overlaid on Residual (gray)")
 
     overlap_ratio = make_overlap_panel(axes[1, 1], residual_channel, survival_channel, args.top_fraction)
+
+    axes[1, 2].imshow(masking_channel, aspect="auto", origin="lower", cmap="viridis", vmin=0.0, vmax=1.0)
+    axes[1, 2].set_title("Channel 4 (Psychoacoustic VAD/Energy Proxy)")
 
     sample_n = min(args.scatter_points, residual_channel.size)
     rng = np.random.RandomState(context_seed % (2 ** 31 - 1))
     idx = rng.choice(residual_channel.size, size=sample_n, replace=False)
-    axes[1, 2].scatter(
+    axes[1, 3].scatter(
         residual_channel.reshape(-1)[idx], survival_channel.reshape(-1)[idx],
         s=4, alpha=0.3, color="tab:purple",
     )
-    axes[1, 2].set_xlabel("Residual channel value (Channel 2)")
-    axes[1, 2].set_ylabel("Survival Map value (Channel 3)")
-    axes[1, 2].set_title(f"Pixel-wise correlation\nPearson={pearson:.3f}, Spearman={spearman:.3f}")
+    axes[1, 3].set_xlabel("Residual (Ch 2)")
+    axes[1, 3].set_ylabel("Survival Map (Ch 3)")
+    axes[1, 3].set_title(f"Ch 2 vs Ch 3 Correlation\nPearson={pearson:.3f}, Spearman={spearman:.3f}")
 
-    fig.suptitle(f"sample={sample_id}  speaker={metadata['speaker_id']}")
+    fig.suptitle(f"4-Channel Feature Pack Visualization -- sample={sample_id} speaker={metadata['speaker_id']}", fontsize=12, fontweight="bold")
     fig.tight_layout()
 
     out_name = f"sample_{args.sample_display_index}_{sanitize(metadata['speaker_id'])}.png"
