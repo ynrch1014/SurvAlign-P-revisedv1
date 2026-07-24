@@ -141,47 +141,83 @@ graph TD
 
 ---
 
-### 4.2. Survival Gate 상세 아키텍처 및 E1~E6 실험 시나리오 다이어그램 갤러리
+### 4.2. Survival Gate 상세 아키텍처 및 E1~E9 / A1~A4 실험 스위트 다이어그램 갤러리
 
 본 연구에서 개발한 Survival Gate는 기존 인코더(AlignMark VAE)가 출력한 원본 잔차($r_0$)를 파괴하거나 새로 만들지 않고, **4-채널 물리 입력 스펙트럼 정보**를 바탕으로 동일한 에너지 예산($\|r_{g}\|_2 \le \|r_0\|_2$) 내에서 **미세 잔차 재배치(Residual Redistribution)**를 수행하는 경량 2D CNN 모듈($\mathcal{O}(1)$ 파라미터)입니다.
 
-실제 오디오 샘플(`librispeech:test:30`, Speaker 2035)에서 추출한 스펙트럼 채널 데이터로 시뮬레이션한 **E1~E6 핵심 실험 시나리오 아키텍처 다이어그램**입니다:
+실제 오디오 샘플(`librispeech:test:30`, Speaker 2035)에서 추출한 스펙트럼 채널 데이터로 시뮬레이션한 **전체 9대 실험 스위트(E1~E9, `run_all_experiments.bat` 규격)** 및 **4대 채널 절제 연구(A1~A4, `--channel_ablation` 규격)** 아키텍처 다이어그램입니다:
 
 ---
 
-#### [E1] 메인 제안 방법론: Proposed Survival Gate (Full 4-Channel Input)
-![E1 Architecture Diagram](./assets/gate_arch_e1_full.png)
-- **설명**: 4개 입력 채널(Ch 1: 원본, Ch 2: 원본 잔차, Ch 3: Physical Survival Map Prior, Ch 4: 청각 마스킹 프록시)을 모두 활용하여 **최적의 위치로 에너지를 정밀 재배치**합니다.
+### Part I. 9대 통합 실험 스위트 (E1 ~ E9, `run_all_experiments.bat` 100% 매핑)
+
+#### [E1] Baseline: AlignMark Original (`--mode baseline`)
+![E1 Architecture Diagram](./assets/gate_arch_e1_baseline.png)
+- **명령어**: `python phase2_training.py --mode baseline`
+- **설명**: Gating Network 없이 AlignMark 원본 인코더 잔차 $r_0$를 그대로 사용하는 대조군(Baseline)입니다.
+
+#### [E2] Uniform Upper Bound: 1.1x Energy Amplification (`--mode uniform_upper`)
+![E2 Architecture Diagram](./assets/gate_arch_e2_uniform_upper.png)
+- **명령어**: `python phase2_training.py --mode uniform_upper`
+- **설명**: L2 에너지 제약을 고의로 해제하고 1.1배 증폭을 가하여, 단순 에너지 증폭 대비 재배치(Redistribution)의 영리함을 증명하는 상한선(Upper-bound) 참고용 실험입니다.
+
+#### [E3] Analytic Survival Gate: Decoder-Free Formula (`--mode analytic_survival`)
+![E3 Architecture Diagram](./assets/gate_arch_e3_analytic_survival.png)
+- **명령어**: `python phase2_training.py --mode analytic_survival --map_type survival`
+- **설명**: CNN 학습 없이 물리적 Survival Map $S(f,t)$ 수식을 오디오 잔차에 직접 곱하여 방어하는 비학습 대조군입니다.
+
+#### [E4] Constant Gate: Uniform 1.0 Prior Input (`--mode constant_gate`)
+![E4 Architecture Diagram](./assets/gate_arch_e4_constant_gate.png)
+- **명령어**: `python phase2_training.py --mode constant_gate`
+- **설명**: 모든 주파수-시간 빈에 상수 1.0 Prior를 공급하여, 어떠한 공간적 Prior 가이던스도 없는 상태에서의 CNN 스케일링 성능을 테스트합니다.
+
+#### [E5] Random Gate: Random Noise Map Input (`--mode random_gate`)
+![E5 Architecture Diagram](./assets/gate_arch_e5_random_gate.png)
+- **명령어**: `python phase2_training.py --mode random_gate`
+- **설명**: 무작위 난수 맵을 Prior로 입력하여, Prior 정보 자체의 존재 필요성을 입증하는 통제 대조군입니다.
+
+#### [E6] Shuffled Survival Gate: Spatially Permuted Prior (`--mode shuffled_survival`)
+![E6 Architecture Diagram](./assets/gate_arch_e6_shuffled_survival.png)
+- **명령어**: `python phase2_training.py --mode shuffled_survival`
+- **설명**: Survival Map의 시간-주파수 공간 구조를 뒤섞어(Shuffled), 단순히 통계값이 존재하는 것을 넘어 정확한 T-F 빈 위치 정합성의 필수성을 증명합니다.
+
+#### [E7] Energy Gate: Simple Local Energy Proxy Map (`--mode energy_gate`)
+![E7 Architecture Diagram](./assets/gate_arch_e7_energy_gate.png)
+- **명령어**: `python phase2_training.py --mode energy_gate`
+- **설명**: 10종 공격 시뮬레이션 지도가 아닌 단순 오디오 로컬 에너지/VAD 마스킹 지점만을 Prior로 대체하여, 10종 코덱 공격 지도의 우위성을 실증합니다.
+
+#### [E8] Proposed Survival Gate: Main Method (`--mode proposed_gate --map_type survival`) ★ MAIN
+![E8 Architecture Diagram](./assets/gate_arch_e8_proposed_survival.png)
+- **명령어**: `python phase2_training.py --mode proposed_gate --map_type survival`
+- **설명**: 본 연구의 **메인 제안 방법론**. 10종 최첨단 신경망/비선형/선형 공격으로 구축한 Physical Survival Map 사전지식과 4-채널 피처 팩을 활용해 최적의 잔차 재배치를 수행합니다.
+
+#### [E9] Codec-Utility Gate: Decoder-Derived Alternative (`--map_type codec_utility`)
+![E9 Architecture Diagram](./assets/gate_arch_e9_codec_utility.png)
+- **명령어**: `python phase2_training.py --mode proposed_gate --map_type codec_utility`
+- **설명**: 순수 신호처리 사전지식 대신 디코더 그래디언트에서 유도된 유틸리티 지도를 Prior로 사용했을 때의 차이를 분석하는 디코더 종속적 대안 실험입니다.
 
 ---
 
-#### [E2] 절제 연구 시나리오 1: No-Guide Map Gate (Survival Map 채널 소거)
-![E2 Architecture Diagram](./assets/gate_arch_e2_no_guide.png)
-- **설명**: 물리적 Prior인 **Ch 3 (Survival Map)을 0으로 소거(Ablated)**하여, Survival Map 지식 없이 학습할 때 코덱 강건성에 어떤 치명적 손실이 생기는지 검증합니다.
+### Part II. 4대 채널 절제 연구 (A1 ~ A4, `--channel_ablation` 매핑)
 
----
+| 절제 코드 | `--channel_ablation` 옵어 | 소거된 채널 (Zeroed Channel) | 목적 및 학술적 검증 내용 |
+|---|---|---|---|
+| **A1** | `full` | None (전체 4채널 활성화) | 메인 Proposed 모델 입력 상태 |
+| **A2** | `no_guide` | Channel 2 (Survival Map Prior) | Survival Map 사전지식의 독자적 기여도 격리 증명 |
+| **A3** | `no_residual` | Channel 1 (Raw Residual Spectrogram) | 원본 잔차 스펙트럼 형상 피처의 필수성 검증 |
+| **A4** | `no_residual_no_guide` | Channel 1 & Channel 2 | 잔차와 지도를 모두 가리고 원본/마스킹만으로 학습할 때의 파멸적 하락 입증 |
 
-#### [E3] 절제 연구 시나리오 2: No-Residual Input Gate (잔차 채널 소거)
-![E3 Architecture Diagram](./assets/gate_arch_e3_no_residual.png)
-- **설명**: **Ch 2 (원본 잔차 스펙트로그램)를 0으로 소거**하여, Gate가 원본 잔차 형상 정보 없이 사전 지형도만으로 스케일링 맵을 생성할 수 있는지 테스트합니다.
+#### [A1] Full 4-Channel Input (`--channel_ablation full`)
+![A1 Ablation Diagram](./assets/gate_ablation_a1_full.png)
 
----
+#### [A2] No-Guide Map Ablation (`--channel_ablation no_guide`)
+![A2 Ablation Diagram](./assets/gate_ablation_a2_no_guide.png)
 
-#### [E4] 절제 연구 시나리오 3: Energy Gate (단순 음향 에너지 프록시 대체)
-![E4 Architecture Diagram](./assets/gate_arch_e4_energy_gate.png)
-- **설명**: 복잡한 10종 코덱 시뮬레이션 Survival Map 대신, **Ch 4 (단순 음향 에너지 마스킹 프록시)**만을 사전 정보로 공급하여 10종 공격 지도의 필수성을 입증합니다.
+#### [A3] No-Residual Input Ablation (`--channel_ablation no_residual`)
+![A3 Ablation Diagram](./assets/gate_ablation_a3_no_residual.png)
 
----
-
-#### [E5] 절제 연구 시나리오 4: Shuffled Survival Gate (공간 구조 뒤섞음)
-![E5 Architecture Diagram](./assets/gate_arch_e5_shuffled.png)
-- **설명**: **Survival Map의 주파수-시간 공간 구조를 무작위로 무너뜨려(Shuffled)**, 단순히 특정 통계값이 존재하는 것을 넘어 정확한 T-F 빈 위치 정합성이 핵심임을 증명합니다.
-
----
-
-#### [E6] 절제 연구 시나리오 5: Constant Gate (상수 1.0 입력)
-![E6 Architecture Diagram](./assets/gate_arch_e6_constant.png)
-- **설명**: 아무런 지형 정보 없이 **모든 주파수 빈에 동일한 상수 1.0 Prior**를 주어, 어떠한 공간적 가이던스도 없는 상태에서의 기본 성능 baseline을 제시합니다.
+#### [A4] No-Residual & No-Guide Ablation (`--channel_ablation no_residual_no_guide`)
+![A4 Ablation Diagram](./assets/gate_ablation_a4_no_residual_no_guide.png)
 
 ---
 

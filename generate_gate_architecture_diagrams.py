@@ -335,66 +335,139 @@ def main():
     ch3 = guide[0].detach().cpu().numpy()
     ch4 = masking_map[0].detach().cpu().numpy()
 
-    # Generate E1 ~ E6 Architecture Diagrams
-
-    # E1: Full 4-Channel Proposed Survival Gate
-    create_diagram(
-        "E1", "Proposed Survival Gate (Full 4-Channel Input)",
-        ch1, ch2, ch3, ch4,
-        os.path.join(out_dir, "gate_arch_e1_full.png"),
-        annotation_text="E1 (Main Method): Uses all 4 input channels (Clean, Residual, Survival Map Prior, Auditory Masking) for optimal redistribution.",
-    )
-
-    # E2: No Guide Map Ablation (Ch 3 Zeroed Out)
-    create_diagram(
-        "E2", "No-Guide Map Ablation (Channel 3 Zeroed)",
-        ch1, ch2, ch3, ch4,
-        os.path.join(out_dir, "gate_arch_e2_no_guide.png"),
-        ch3_label="Guide Map (ZEROED / ABLATED)",
-        is_ch3_masked=True,
-        annotation_text="E2 (No-Guide Ablation): Channel 3 (Survival Map) is zeroed out to prove the Physical Prior is essential for codec robustness.",
-    )
-
-    # E3: No Residual Input Ablation (Ch 2 Zeroed Out)
-    create_diagram(
-        "E3", "No-Residual Input Ablation (Channel 2 Zeroed)",
-        ch1, ch2, ch3, ch4,
-        os.path.join(out_dir, "gate_arch_e3_no_residual.png"),
-        ch2_label="Residual Spectrogram (ZEROED / ABLATED)",
-        is_ch2_masked=True,
-        annotation_text="E3 (No-Residual Ablation): Channel 2 (Raw Residual) is zeroed out to test if the Gate requires raw residual spectrum features.",
-    )
-
-    # E4: Energy Gate Ablation (Simple Masking Proxy Only)
-    create_diagram(
-        "E4", "Energy Gate Ablation (Local Energy Proxy Only)",
-        ch1, ch2, ch4, ch4,
-        os.path.join(out_dir, "gate_arch_e4_energy_gate.png"),
-        ch3_label="Energy Proxy (Replaces Survival Map)",
-        annotation_text="E4 (Energy Gate): Replaces the attack-simulated Survival Map with a simple local audio energy proxy map.",
-    )
-
-    # E5: Shuffled Survival Gate Ablation
     rng = np.random.RandomState(42)
     ch3_shuffled = rng.permutation(ch3.ravel()).reshape(ch3.shape)
+    ch3_random = rng.uniform(0, 1, size=ch3.shape)
+    ch3_constant = np.ones_like(ch3)
+
+    # ------------------------------------------------------------------------
+    # 1. Full 9-Experiment Suite Diagrams (E1 ~ E9) matching run_all_experiments.bat
+    # ------------------------------------------------------------------------
+
+    # E1: Baseline (AlignMark Original - No Gate / Direct Residual)
     create_diagram(
-        "E5", "Shuffled Survival Gate Ablation (Permuted Prior)",
-        ch1, ch2, ch3_shuffled, ch4,
-        os.path.join(out_dir, "gate_arch_e5_shuffled.png"),
-        ch3_label="Guide Map (Spatially Shuffled)",
-        is_ch3_shuffled=True,
-        annotation_text="E5 (Shuffled Survival): Spatially permutes the Survival Map to prove exact T-F bin alignment is crucial.",
+        "E1", "Baseline (AlignMark Original - No Gate)",
+        ch1, ch2, ch3_constant, ch4,
+        os.path.join(out_dir, "gate_arch_e1_baseline.png"),
+        ch3_label="No Gate Prior (Baseline)",
+        annotation_text="E1 [1/9]: Original AlignMark Baseline with direct unscaled residual (no gating network).",
     )
 
-    # E6: Constant Gate Ablation (Uniform 1.0 Prior)
-    ch3_constant = np.ones_like(ch3)
+    # E2: Uniform Upper Bound (1.1x Energy Amplification)
     create_diagram(
-        "E6", "Constant Gate Ablation (Uniform 1.0 Prior)",
+        "E2", "Uniform Upper Bound (1.1x Energy Amplification)",
         ch1, ch2, ch3_constant, ch4,
-        os.path.join(out_dir, "gate_arch_e6_constant.png"),
-        ch3_label="Guide Map (Constant 1.0)",
+        os.path.join(out_dir, "gate_arch_e2_uniform_upper.png"),
+        ch3_label="Uniform 1.1 Scale (Upper Bound)",
+        annotation_text="E2 [2/9]: Uniform energy upper bound (1.1x scale, breaks L2 budget to test brute-force amplification).",
+    )
+
+    # E3: Analytic Survival Gate (Decoder-free Formula)
+    create_diagram(
+        "E3", "Analytic Survival Gate (Decoder-Free Formula)",
+        ch1, ch2, ch3, ch4,
+        os.path.join(out_dir, "gate_arch_e3_analytic_survival.png"),
+        ch3_label="Analytic Survival Map",
+        annotation_text="E3 [3/9]: Decoder-free analytic survival gate applying physical map directly without CNN training.",
+    )
+
+    # E4: Constant Gate (Uniform 1.0 Map Input)
+    create_diagram(
+        "E4", "Constant Gate (--mode constant_gate)",
+        ch1, ch2, ch3_constant, ch4,
+        os.path.join(out_dir, "gate_arch_e4_constant_gate.png"),
+        ch3_label="Guide Map (Constant 1.0 Input)",
         is_ch3_constant=True,
-        annotation_text="E6 (Constant Gate): Supplies a uniform 1.0 prior (no spatial guidance) to test if unguided scaling provides any benefit.",
+        annotation_text="E4 [4/9]: Constant map gate providing a uniform 1.0 prior input to test unguided CNN scaling.",
+    )
+
+    # E5: Random Gate (Random Map Input)
+    create_diagram(
+        "E5", "Random Gate (--mode random_gate)",
+        ch1, ch2, ch3_random, ch4,
+        os.path.join(out_dir, "gate_arch_e5_random_gate.png"),
+        ch3_label="Guide Map (Random Noise Input)",
+        annotation_text="E5 [5/9]: Random map gate providing random noise prior to verify if prior information is required.",
+    )
+
+    # E6: Shuffled Survival Gate (Spatially Permuted Prior)
+    create_diagram(
+        "E6", "Shuffled Survival Gate (--mode shuffled_survival)",
+        ch1, ch2, ch3_shuffled, ch4,
+        os.path.join(out_dir, "gate_arch_e6_shuffled_survival.png"),
+        ch3_label="Guide Map (Spatially Shuffled)",
+        is_ch3_shuffled=True,
+        annotation_text="E6 [6/9]: Shuffled survival gate spatially permuting the map to prove T-F bin alignment matters.",
+    )
+
+    # E7: Energy Gate (Simple Local Energy Proxy Map)
+    create_diagram(
+        "E7", "Energy Gate (--mode energy_gate)",
+        ch1, ch2, ch4, ch4,
+        os.path.join(out_dir, "gate_arch_e7_energy_gate.png"),
+        ch3_label="Energy Proxy (Replaces Survival Map)",
+        annotation_text="E7 [7/9]: Energy gate replacing the 10-attack simulated map with a simple local audio energy proxy.",
+    )
+
+    # E8: Proposed Survival Gate (Main Method - Full 4-Channel)
+    create_diagram(
+        "E8", "Proposed Survival Gate (Main Method - Full 4-Channel)",
+        ch1, ch2, ch3, ch4,
+        os.path.join(out_dir, "gate_arch_e8_proposed_survival.png"),
+        annotation_text="E8 [8/9] (MAIN): Proposed Survival Gate with 10-attack Physical Survival Map and 4-Channel input.",
+    )
+
+    # E9: Codec-Utility Gate (Decoder-Derived Alternative)
+    create_diagram(
+        "E9", "Codec-Utility Gate (--map_type codec_utility)",
+        ch1, ch2, ch3, ch4,
+        os.path.join(out_dir, "gate_arch_e9_codec_utility.png"),
+        ch3_label="Codec-Utility Map (Decoder-Derived)",
+        annotation_text="E9 [9/9]: Codec-Utility Gate using decoder-gradient derived utility map as an alternative prior.",
+    )
+
+    # ------------------------------------------------------------------------
+    # 2. Channel Ablation Suite Diagrams (A1 ~ A4) matching --channel_ablation
+    # ------------------------------------------------------------------------
+
+    # A1: Full 4-Channel Input
+    create_diagram(
+        "A1", "Full 4-Channel Input (--channel_ablation full)",
+        ch1, ch2, ch3, ch4,
+        os.path.join(out_dir, "gate_ablation_a1_full.png"),
+        annotation_text="A1: All 4 channels active (Clean, Residual, Survival Map, Auditory Masking).",
+    )
+
+    # A2: No Guide Map (Channel 3 Zeroed Out)
+    create_diagram(
+        "A2", "No-Guide Map Ablation (--channel_ablation no_guide)",
+        ch1, ch2, ch3, ch4,
+        os.path.join(out_dir, "gate_ablation_a2_no_guide.png"),
+        ch3_label="Guide Map (ZEROED / ABLATED)",
+        is_ch3_masked=True,
+        annotation_text="A2: Channel 3 (Survival Map Prior) zeroed out before CNN to isolate Survival Map contribution.",
+    )
+
+    # A3: No Residual Input (Channel 2 Zeroed Out)
+    create_diagram(
+        "A3", "No-Residual Input Ablation (--channel_ablation no_residual)",
+        ch1, ch2, ch3, ch4,
+        os.path.join(out_dir, "gate_ablation_a3_no_residual.png"),
+        ch2_label="Residual Spectrogram (ZEROED / ABLATED)",
+        is_ch2_masked=True,
+        annotation_text="A3: Channel 2 (Raw Residual Spectrogram) zeroed out before CNN to test residual dependency.",
+    )
+
+    # A4: No Residual & No Guide (Channels 1 & 2 Zeroed Out)
+    create_diagram(
+        "A4", "No-Residual & No-Guide Ablation (--channel_ablation no_residual_no_guide)",
+        ch1, ch2, ch3, ch4,
+        os.path.join(out_dir, "gate_ablation_a4_no_residual_no_guide.png"),
+        ch2_label="Residual (ZEROED / ABLATED)",
+        ch3_label="Guide Map (ZEROED / ABLATED)",
+        is_ch2_masked=True,
+        is_ch3_masked=True,
+        annotation_text="A4: Both Channel 2 (Residual) and Channel 3 (Guide Map) zeroed out before CNN.",
     )
 
 
