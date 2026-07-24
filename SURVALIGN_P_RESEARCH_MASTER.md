@@ -137,8 +137,47 @@ graph TD
         
         J2 --> K2["Held-out Attacks<br>FACodec, MP3"]
         K2 --> L2["Message Decoding & Metric Eval"]
-    end
-```
+### 4.2. Survival Gate 상세 아키텍처 및 E1~E6 실험 시나리오 다이어그램 갤러리
+
+본 연구에서 개발한 Survival Gate는 기존 인코더(AlignMark VAE)가 출력한 원본 잔차($r_0$)를 파괴하거나 새로 만들지 않고, **4-채널 물리 입력 스펙트럼 정보**를 바탕으로 동일한 에너지 예산($\|r_{g}\|_2 \le \|r_0\|_2$) 내에서 **미세 잔차 재배치(Residual Redistribution)**를 수행하는 경량 2D CNN 모듈($\mathcal{O}(1)$ 파라미터)입니다.
+
+실제 오디오 샘플(`librispeech:test:30`, Speaker 2035)에서 추출한 스펙트럼 채널 데이터로 시뮬레이션한 **E1~E6 핵심 실험 시나리오 아키텍처 다이어그램**입니다:
+
+---
+
+#### [E1] 메인 제안 방법론: Proposed Survival Gate (Full 4-Channel Input)
+![E1 Architecture Diagram](./assets/gate_arch_e1_full.png)
+- **설명**: 4개 입력 채널(Ch 1: 원본, Ch 2: 원본 잔차, Ch 3: Physical Survival Map Prior, Ch 4: 청각 마스킹 프록시)을 모두 활용하여 **최적의 위치로 에너지를 정밀 재배치**합니다.
+
+---
+
+#### [E2] 절제 연구 시나리오 1: No-Guide Map Gate (Survival Map 채널 소거)
+![E2 Architecture Diagram](./assets/gate_arch_e2_no_guide.png)
+- **설명**: 물리적 Prior인 **Ch 3 (Survival Map)을 0으로 소거(Ablated)**하여, Survival Map 지식 없이 학습할 때 코덱 강건성에 어떤 치명적 손실이 생기는지 검증합니다.
+
+---
+
+#### [E3] 절제 연구 시나리오 2: No-Residual Input Gate (잔차 채널 소거)
+![E3 Architecture Diagram](./assets/gate_arch_e3_no_residual.png)
+- **설명**: **Ch 2 (원본 잔차 스펙트로그램)를 0으로 소거**하여, Gate가 원본 잔차 형상 정보 없이 사전 지형도만으로 스케일링 맵을 생성할 수 있는지 테스트합니다.
+
+---
+
+#### [E4] 절제 연구 시나리오 3: Energy Gate (단순 음향 에너지 프록시 대체)
+![E4 Architecture Diagram](./assets/gate_arch_e4_energy_gate.png)
+- **설명**: 복잡한 10종 코덱 시뮬레이션 Survival Map 대신, **Ch 4 (단순 음향 에너지 마스킹 프록시)**만을 사전 정보로 공급하여 10종 공격 지도의 필수성을 입증합니다.
+
+---
+
+#### [E5] 절제 연구 시나리오 4: Shuffled Survival Gate (공간 구조 뒤섞음)
+![E5 Architecture Diagram](./assets/gate_arch_e5_shuffled.png)
+- **설명**: **Survival Map의 주파수-시간 공간 구조를 무작위로 무너뜨려(Shuffled)**, 단순히 특정 통계값이 존재하는 것을 넘어 정확한 T-F 빈 위치 정합성이 핵심임을 증명합니다.
+
+---
+
+#### [E6] 절제 연구 시나리오 5: Constant Gate (상수 1.0 입력)
+![E6 Architecture Diagram](./assets/gate_arch_e6_constant.png)
+- **설명**: 아무런 지형 정보 없이 **모든 주파수 빈에 동일한 상수 1.0 Prior**를 주어, 어떠한 공간적 가이던스도 없는 상태에서의 기본 성능 baseline을 제시합니다.
 
 ---
 
